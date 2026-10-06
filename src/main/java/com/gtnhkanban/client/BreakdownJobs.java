@@ -17,6 +17,7 @@ import com.gtnhkanban.network.message.KanbanRequest;
 import com.gtnhkanban.network.message.RecipeTreeCodec;
 import com.gtnhkanban.planner.BreakdownPlanner;
 import com.gtnhkanban.planner.BreakdownStrategy;
+import com.gtnhkanban.planner.CachingRecipeSource;
 import com.gtnhkanban.service.KanbanService;
 
 import cpw.mods.fml.common.FMLLog;
@@ -35,6 +36,8 @@ public final class BreakdownJobs {
     /** Stop waiting for a server answer after this many ticks (10 seconds). */
     private static final int ACK_TIMEOUT_TICKS = 200;
     private static final ArrayDeque<Job> QUEUE = new ArrayDeque<Job>();
+    /** Recipes and material classes shared by every breakdown this session; cleared when leaving a world. */
+    private static final CachingRecipeSource RECIPES = new CachingRecipeSource(new NeiRecipeSource(), 4000);
     private static BreakdownStrategy strategy = BreakdownStrategy.CRAFTING_TABLE;
     private static int nextUploadId;
     private static String notice = "";
@@ -63,7 +66,6 @@ public final class BreakdownJobs {
         long revision;
         boolean hadBranch;
         BreakdownPlanner planner;
-        NeiRecipeSource source;
 
         Job(UUID projectId, UUID cardId, UUID entryId, ItemKey item, int quantity, Batch batch) {
             this.projectId = projectId;
@@ -130,7 +132,7 @@ public final class BreakdownJobs {
                 done(job, false, false);
                 return;
             }
-            if (!job.planner.step(job.source, System.nanoTime() + SLICE_NANOS)) return;
+            if (!job.planner.step(RECIPES, System.nanoTime() + SLICE_NANOS)) return;
             QUEUE.poll();
             finish(job);
         } catch (RuntimeException exception) {
@@ -155,7 +157,6 @@ public final class BreakdownJobs {
     private static boolean start(Job job) {
         CardView card = KanbanClientState.findCard(job.cardId);
         int rows = card == null ? 0 : rowCount(card.getRequirements());
-        job.source = new NeiRecipeSource();
         if (job.entryId == null) {
             job.planner = new BreakdownPlanner(job.item, strategy, 1, KanbanService.MAX_CARD_ROWS - rows - 1);
             return true;
@@ -216,12 +217,15 @@ public final class BreakdownJobs {
     /** Writes why materials were left unexpanded to the client log, for diagnosing missing breakdowns. */
     private static void report(Job job, String name, RecipeTree tree) {
         FMLLog.info(
-            "GTNH Kanban breakdown of %s (%s): %d rows, %d recipe lookups%s",
+            "GTNH Kanban breakdown of %s (%s): %d rows, %d recipe lookups%s; session cache %d items, %d hits, %d misses",
             name,
             strategy.getLabel(),
             tree == null ? 0 : tree.nodeCount(),
             job.planner.lookups(),
-            job.planner.isTruncated() ? ", partial" : "");
+            job.planner.isTruncated() ? ", partial" : "",
+            RECIPES.size(),
+            RECIPES.hits(),
+            RECIPES.misses());
         for (java.util.Map.Entry<ItemKey, String> stop : job.planner.stopReasons()
             .entrySet()) {
             FMLLog.info(
@@ -272,6 +276,7 @@ public final class BreakdownJobs {
 
     static void clear() {
         QUEUE.clear();
+        RECIPES.clear();
         notice = "";
         waiting = Wait.NONE;
     }

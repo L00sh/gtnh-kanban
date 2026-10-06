@@ -13,4 +13,6 @@ public interface ProjectRepository {
     List<KanbanProject> allProjects();
 
     void saveProject(KanbanProject project);
+
+    boolean deleteProject(UUID projectId);
 }

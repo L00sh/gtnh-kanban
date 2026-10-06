@@ -15,10 +15,15 @@ import com.gtnhkanban.network.message.C2SAddMember;
 import com.gtnhkanban.network.message.C2SAddRequirement;
 import com.gtnhkanban.network.message.C2SCreateCard;
 import com.gtnhkanban.network.message.C2SCreateProject;
+import com.gtnhkanban.network.message.C2SDeleteCard;
+import com.gtnhkanban.network.message.C2SDeleteProject;
+import com.gtnhkanban.network.message.C2SDeleteRequirement;
 import com.gtnhkanban.network.message.C2SFetchBoard;
 import com.gtnhkanban.network.message.C2SListProjects;
+import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
+import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
 import com.gtnhkanban.network.message.C2SUpdateCard;
 import com.gtnhkanban.network.message.KanbanRequest;
 import com.gtnhkanban.network.message.RequestType;
@@ -58,6 +63,11 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new UpdateCardHandler(), C2SUpdateCard.class, 6, Side.SERVER);
         CHANNEL.registerMessage(new AddRequirementHandler(), C2SAddRequirement.class, 7, Side.SERVER);
         CHANNEL.registerMessage(new SetRequirementCompleteHandler(), C2SSetRequirementComplete.class, 8, Side.SERVER);
+        CHANNEL.registerMessage(new DeleteProjectHandler(), C2SDeleteProject.class, 13, Side.SERVER);
+        CHANNEL.registerMessage(new DeleteCardHandler(), C2SDeleteCard.class, 14, Side.SERVER);
+        CHANNEL.registerMessage(new MoveCardHandler(), C2SMoveCard.class, 15, Side.SERVER);
+        CHANNEL.registerMessage(new DeleteRequirementHandler(), C2SDeleteRequirement.class, 16, Side.SERVER);
+        CHANNEL.registerMessage(new SetRequirementQuantityHandler(), C2SSetRequirementQuantity.class, 17, Side.SERVER);
     }
 
     public static void registerClientMessages() {
@@ -68,7 +78,11 @@ public final class KanbanNetwork {
     }
 
     public static void requestProjectList(EntityPlayerMP player) {
-        CHANNEL.sendTo(new S2COpenProjectList(), player);
+        requestProjectList(player, true);
+    }
+
+    private static void requestProjectList(EntityPlayerMP player, boolean openScreen) {
+        if (openScreen) CHANNEL.sendTo(new S2COpenProjectList(), player);
         KanbanService service = service(player.worldObj);
         CHANNEL.sendTo(new S2CProjectList(service.listAccessibleProjects(player.getUniqueID())), player);
     }
@@ -144,13 +158,13 @@ public final class KanbanNetwork {
                 OperationResult<ProjectSummary> result = service
                     .createProject(actorId, bounded(request.getFirstText(), 64));
                 sendResult(player, result);
-                if (result.isSuccess()) requestProjectList(player);
+                if (result.isSuccess()) requestProjectList(player, false);
                 return;
             }
             if (request.getType() == RequestType.FETCH_BOARD) {
                 OperationResult<BoardSnapshot> result = service.getBoard(actorId, request.getProjectId());
-                sendResult(player, result);
                 if (result.isSuccess()) CHANNEL.sendTo(new S2CBoardSnapshot(result.getValue()), player);
+                else sendResult(player, result);
                 return;
             }
 
@@ -179,6 +193,15 @@ public final class KanbanNetwork {
                         bounded(request.getSecondText(), 512),
                         request.getStatus());
                     break;
+                case DELETE_PROJECT:
+                    result = service.deleteProject(actorId, projectId);
+                    break;
+                case DELETE_CARD:
+                    result = service.deleteCard(actorId, projectId, request.getCardId());
+                    break;
+                case MOVE_CARD:
+                    result = service.moveCard(actorId, projectId, request.getCardId(), request.getStatus());
+                    break;
                 case ADD_REQUIREMENT:
                     result = service.addRequirement(
                         actorId,
@@ -195,6 +218,17 @@ public final class KanbanNetwork {
                         request.getEntryId(),
                         request.isComplete());
                     break;
+                case SET_REQUIREMENT_QUANTITY:
+                    result = service.setRequirementQuantity(
+                        actorId,
+                        projectId,
+                        request.getCardId(),
+                        request.getEntryId(),
+                        request.getQuantity());
+                    break;
+                case DELETE_REQUIREMENT:
+                    result = service.deleteRequirement(actorId, projectId, request.getCardId(), request.getEntryId());
+                    break;
                 default:
                     CHANNEL.sendTo(
                         new S2COperationResult(false, "INVALID_REQUEST", "That request is not supported."),
@@ -202,7 +236,10 @@ public final class KanbanNetwork {
                     return;
             }
             sendResult(player, result);
-            if (result.isSuccess()) broadcastBoard(projectId);
+            if (result.isSuccess()) {
+                if (request.getType() == RequestType.DELETE_PROJECT) broadcastProjectLists();
+                else broadcastBoard(projectId);
+            }
         }
 
         private String bounded(String value, int maximum) {
@@ -221,6 +258,16 @@ public final class KanbanNetwork {
                 OperationResult<BoardSnapshot> result = service(recipient.worldObj)
                     .getBoard(recipient.getUniqueID(), projectId);
                 if (result.isSuccess()) CHANNEL.sendTo(new S2CBoardSnapshot(result.getValue()), recipient);
+            }
+        }
+
+        private void broadcastProjectLists() {
+            for (Object object : MinecraftServer.getServer()
+                .getConfigurationManager().playerEntityList) {
+                EntityPlayerMP recipient = (EntityPlayerMP) object;
+                CHANNEL.sendTo(
+                    new S2CProjectList(service(recipient.worldObj).listAccessibleProjects(recipient.getUniqueID())),
+                    recipient);
             }
         }
     }
@@ -250,6 +297,21 @@ public final class KanbanNetwork {
     }
 
     private static final class SetRequirementCompleteHandler extends ServerRequestHandler {
+    }
+
+    private static final class DeleteProjectHandler extends ServerRequestHandler {
+    }
+
+    private static final class DeleteCardHandler extends ServerRequestHandler {
+    }
+
+    private static final class MoveCardHandler extends ServerRequestHandler {
+    }
+
+    private static final class SetRequirementQuantityHandler extends ServerRequestHandler {
+    }
+
+    private static final class DeleteRequirementHandler extends ServerRequestHandler {
     }
 
     private static final class ClientOpenHandler implements IMessageHandler<S2COpenProjectList, IMessage> {

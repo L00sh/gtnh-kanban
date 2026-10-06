@@ -196,6 +196,69 @@ public class KanbanServiceTest {
                 .isEmpty());
     }
 
+    @Test
+    public void rejectsDuplicateCardNamesAcrossStatesAndMembers() {
+        UUID projectId = createProject();
+        service.addMember(OWNER_ID, projectId, "Member");
+        CardView original = service.createCard(OWNER_ID, projectId, "Power", "Original")
+            .getValue();
+        service.moveCard(OWNER_ID, projectId, original.getId(), CardStatus.DONE);
+
+        OperationResult<CardView> duplicate = service.createCard(MEMBER_ID, projectId, "  pOwEr  ", "Duplicate");
+
+        assertFalse(duplicate.isSuccess());
+        assertEquals("DUPLICATE_CARD_TITLE", duplicate.getErrorCode());
+        assertEquals(
+            1,
+            projects.findProject(projectId)
+                .getCards()
+                .size());
+    }
+
+    @Test
+    public void rejectsDuplicateRenameWithoutChangingCard() {
+        UUID projectId = createProject();
+        service.createCard(OWNER_ID, projectId, "Power", "");
+        CardView card = service.createCard(OWNER_ID, projectId, "Storage", "Original")
+            .getValue();
+
+        OperationResult<CardView> renamed = service
+            .updateCard(OWNER_ID, projectId, card.getId(), " power ", "Changed", CardStatus.DONE);
+
+        assertFalse(renamed.isSuccess());
+        assertEquals("DUPLICATE_CARD_TITLE", renamed.getErrorCode());
+        assertEquals(
+            "Storage",
+            projects.findProject(projectId)
+                .findCard(card.getId())
+                .getTitle());
+        assertEquals(
+            "Original",
+            projects.findProject(projectId)
+                .findCard(card.getId())
+                .getDescription());
+        assertEquals(
+            CardStatus.TODO,
+            projects.findProject(projectId)
+                .findCard(card.getId())
+                .getStatus());
+    }
+
+    @Test
+    public void allowsSameCardNameInAnotherProjectAndEditingItsOwnName() {
+        UUID firstProject = createProject();
+        UUID secondProject = createProject();
+        CardView card = service.createCard(OWNER_ID, firstProject, "Power", "")
+            .getValue();
+
+        assertTrue(
+            service.createCard(OWNER_ID, secondProject, "Power", "")
+                .isSuccess());
+        assertTrue(
+            service.updateCard(OWNER_ID, firstProject, card.getId(), " POWER ", "Edited", CardStatus.IN_PROGRESS)
+                .isSuccess());
+    }
+
     private UUID createProject() {
         OperationResult<ProjectSummary> created = service.createProject(OWNER_ID, "Project");
         assertTrue(created.isSuccess());
@@ -263,6 +326,11 @@ public class KanbanServiceTest {
         @Override
         public void saveProject(KanbanProject project) {
             projects.put(project.getId(), project);
+        }
+
+        @Override
+        public boolean deleteProject(UUID projectId) {
+            return projects.remove(projectId) != null;
         }
     }
 }

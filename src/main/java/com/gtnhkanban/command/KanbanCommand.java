@@ -32,4 +32,9 @@ public final class KanbanCommand extends CommandBase {
     public int getRequiredPermissionLevel() {
         return 0;
     }
+
+    @Override
+    public boolean canCommandSenderUseCommand(ICommandSender sender) {
+        return true;
+    }
 }

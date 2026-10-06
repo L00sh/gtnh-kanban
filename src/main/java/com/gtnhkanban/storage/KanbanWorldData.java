@@ -82,4 +82,11 @@ public final class KanbanWorldData extends WorldSavedData implements ProjectRepo
         projects.put(project.getId(), project);
         markDirty();
     }
+
+    @Override
+    public boolean deleteProject(UUID projectId) {
+        boolean removed = projects.remove(projectId) != null;
+        if (removed) markDirty();
+        return removed;
+    }
 }

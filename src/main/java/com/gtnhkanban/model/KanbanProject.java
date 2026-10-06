@@ -69,6 +69,11 @@ public final class KanbanProject {
         cards.add(Objects.requireNonNull(card, "card"));
     }
 
+    public boolean removeCard(UUID cardId) {
+        KanbanCard card = findCard(cardId);
+        return card != null && cards.remove(card);
+    }
+
     public KanbanCard findCard(UUID cardId) {
         for (KanbanCard card : cards) {
             if (card.getId()

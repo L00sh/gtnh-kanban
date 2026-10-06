@@ -3,10 +3,12 @@ package com.gtnhkanban.proxy;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiScreen;
 
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
+import com.gtnhkanban.client.GuiProjectList;
+import com.gtnhkanban.client.KanbanClientControls;
+import com.gtnhkanban.client.KanbanClientState;
 import com.gtnhkanban.network.KanbanNetwork;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
@@ -17,6 +19,7 @@ public class ClientProxy extends CommonProxy {
     public void init(FMLInitializationEvent event) {
         super.init(event);
         KanbanNetwork.registerClientMessages();
+        KanbanClientControls.register();
     }
 
     @Override
@@ -27,7 +30,7 @@ public class ClientProxy extends CommonProxy {
                 @Override
                 public void run() {
                     Minecraft.getMinecraft()
-                        .displayGuiScreen(new GuiScreen() {});
+                        .displayGuiScreen(new GuiProjectList());
                 }
             });
     }
@@ -38,7 +41,9 @@ public class ClientProxy extends CommonProxy {
             .func_152344_a(new Runnable() {
 
                 @Override
-                public void run() { /* Project list screen consumes this state in the GUI task. */ }
+                public void run() {
+                    KanbanClientState.setProjects(projects);
+                }
             });
     }
 
@@ -48,7 +53,9 @@ public class ClientProxy extends CommonProxy {
             .func_152344_a(new Runnable() {
 
                 @Override
-                public void run() { /* Board screen consumes this state in the GUI task. */ }
+                public void run() {
+                    KanbanClientState.setBoard(snapshot);
+                }
             });
     }
 
@@ -58,7 +65,9 @@ public class ClientProxy extends CommonProxy {
             .func_152344_a(new Runnable() {
 
                 @Override
-                public void run() { /* GUI task presents operation results to the player. */ }
+                public void run() {
+                    KanbanClientState.setResult(success, code, message);
+                }
             });
     }
 }

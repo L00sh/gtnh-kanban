@@ -62,6 +62,13 @@ public final class KanbanService {
         return OperationResult.success(projectSummary(project, actorId));
     }
 
+    public OperationResult<Void> deleteProject(UUID actorId, UUID projectId) {
+        OperationResult<KanbanProject> authorized = requireOwner(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        projects.deleteProject(projectId);
+        return OperationResult.success(null);
+    }
+
     public OperationResult<Void> addMember(UUID actorId, UUID projectId, String username) {
         OperationResult<KanbanProject> authorized = requireOwner(actorId, projectId);
         if (!authorized.isSuccess()) {
@@ -111,6 +118,10 @@ public final class KanbanService {
         if (!validTitle.isValid()) {
             return invalid(validTitle);
         }
+        if (hasCardTitle(authorized.getValue(), validTitle.getValue(), null)) {
+            return OperationResult
+                .failure("DUPLICATE_CARD_TITLE", "A card with that name already exists in this project.");
+        }
         ValidationResult<String> validDescription = BoardValidator.validateDescription(description);
         if (!validDescription.isValid()) {
             return invalid(validDescription);
@@ -140,6 +151,10 @@ public final class KanbanService {
         if (!validTitle.isValid()) {
             return invalid(validTitle);
         }
+        if (hasCardTitle(authorized.getValue(), validTitle.getValue(), cardId)) {
+            return OperationResult
+                .failure("DUPLICATE_CARD_TITLE", "A card with that name already exists in this project.");
+        }
         ValidationResult<String> validDescription = BoardValidator.validateDescription(description);
         if (!validDescription.isValid()) {
             return invalid(validDescription);
@@ -149,6 +164,28 @@ public final class KanbanService {
         }
         card.setTitle(validTitle.getValue());
         card.setDescription(validDescription.getValue());
+        card.setStatus(status);
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<Void> deleteCard(UUID actorId, UUID projectId, UUID cardId) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        if (!authorized.getValue()
+            .removeCard(cardId)) {
+            return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        }
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(null);
+    }
+
+    public OperationResult<CardView> moveCard(UUID actorId, UUID projectId, UUID cardId, CardStatus status) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (status == null) return OperationResult.failure("INVALID_STATUS", "A card status is required.");
         card.setStatus(status);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(cardView(card));
@@ -199,6 +236,49 @@ public final class KanbanService {
         requirement.setComplete(complete);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(requirementView(requirement));
+    }
+
+    public OperationResult<RequirementView> setRequirementQuantity(UUID actorId, UUID projectId, UUID cardId,
+        UUID requirementId, int quantity) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        ItemRequirement requirement = requirementId == null ? null : card.findRequirement(requirementId);
+        if (requirement == null) {
+            return OperationResult.failure("REQUIREMENT_NOT_FOUND", "That checklist entry does not exist.");
+        }
+        ValidationResult<Integer> validQuantity = BoardValidator.validateQuantity(quantity);
+        if (!validQuantity.isValid()) return invalid(validQuantity);
+        requirement.setQuantity(
+            validQuantity.getValue()
+                .intValue());
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(requirementView(requirement));
+    }
+
+    public OperationResult<Void> deleteRequirement(UUID actorId, UUID projectId, UUID cardId, UUID requirementId) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (!card.removeRequirement(requirementId)) {
+            return OperationResult.failure("REQUIREMENT_NOT_FOUND", "That checklist entry does not exist.");
+        }
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(null);
+    }
+
+    private boolean hasCardTitle(KanbanProject project, String title, UUID excludedCardId) {
+        for (KanbanCard existing : project.getCards()) {
+            if (!existing.getId()
+                .equals(excludedCardId) && existing.getTitle()
+                    .trim()
+                    .equalsIgnoreCase(title)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private OperationResult<KanbanProject> requireOwner(UUID actorId, UUID projectId) {

@@ -7,7 +7,7 @@ public final class ItemRequirement {
 
     private final UUID id;
     private final ItemKey item;
-    private final int quantity;
+    private int quantity;
     private boolean complete;
 
     public ItemRequirement(UUID id, ItemKey item, int quantity, boolean complete) {
@@ -30,6 +30,11 @@ public final class ItemRequirement {
 
     public int getQuantity() {
         return quantity;
+    }
+
+    public void setQuantity(int quantity) {
+        if (quantity < 1) throw new IllegalArgumentException("quantity must be positive");
+        this.quantity = quantity;
     }
 
     public boolean isComplete() {

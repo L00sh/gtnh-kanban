@@ -72,4 +72,16 @@ public final class KanbanCard {
         }
         return null;
     }
+
+    public boolean removeRequirement(UUID requirementId) {
+        for (int index = 0; index < requirements.size(); index++) {
+            if (requirements.get(index)
+                .getId()
+                .equals(requirementId)) {
+                requirements.remove(index);
+                return true;
+            }
+        }
+        return false;
+    }
 }

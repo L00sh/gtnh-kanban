@@ -8,7 +8,7 @@ import java.util.UUID;
 
 import org.junit.Test;
 
-import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.ItemKey;
 
 public class ApiSnapshotTest {
@@ -37,7 +37,7 @@ public class ApiSnapshotTest {
     @Test(expected = UnsupportedOperationException.class)
     public void cardViewCopiesAndProtectsRequirements() {
         List<RequirementView> requirements = new ArrayList<RequirementView>();
-        CardView view = new CardView(UUID.randomUUID(), "Card", "", CardStatus.TODO, requirements);
+        CardView view = new CardView(UUID.randomUUID(), "Card", "", BoardSettings.BACKLOG, requirements);
 
         requirements.add(requirement());
 
@@ -54,7 +54,7 @@ public class ApiSnapshotTest {
     }
 
     private static CardView card() {
-        return new CardView(UUID.randomUUID(), "Card", "", CardStatus.TODO, new ArrayList<RequirementView>());
+        return new CardView(UUID.randomUUID(), "Card", "", BoardSettings.BACKLOG, new ArrayList<RequirementView>());
     }
 
     private static RequirementView requirement() {

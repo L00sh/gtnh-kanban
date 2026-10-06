@@ -11,6 +11,8 @@ import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
+import com.gtnhkanban.model.ItemKey;
+
 import codechicken.nei.ItemList;
 
 public final class GuiItemPicker extends GuiKanbanScreen {
@@ -20,8 +22,18 @@ public final class GuiItemPicker extends GuiKanbanScreen {
     private static final int PREVIOUS = 2;
     private static final int NEXT = 3;
 
+    private static final int CLEAR_ICON = 4;
+
+    /** Receives the chosen icon; null means "no icon". */
+    interface IconChoice {
+
+        void chosen(ItemKey icon);
+    }
+
     private final UUID projectId;
     private final UUID cardId;
+    private final IconChoice iconChoice;
+    private final String title;
     private GuiTextField quantityField;
     private GuiTextField searchField;
     private List<ItemStack> filteredItems = new ArrayList<ItemStack>();
@@ -36,7 +48,18 @@ public final class GuiItemPicker extends GuiKanbanScreen {
         super(parent);
         this.projectId = projectId;
         this.cardId = cardId;
+        this.iconChoice = null;
+        this.title = "Select an NEI item (items are not consumed)";
         refreshBoardWhileOpen(projectId);
+    }
+
+    /** Picks an item to show as an icon instead of adding a checklist item. */
+    GuiItemPicker(GuiScreen parent, String title, IconChoice choice) {
+        super(parent);
+        this.projectId = null;
+        this.cardId = null;
+        this.iconChoice = choice;
+        this.title = title;
     }
 
     @Override
@@ -45,6 +68,8 @@ public final class GuiItemPicker extends GuiKanbanScreen {
         buttonList.add(new GuiButton(BACK, width / 2 - 115, height - 28, 60, 20, "Back"));
         buttonList.add(new GuiButton(PREVIOUS, width / 2 + 5, height - 28, 35, 20, "<"));
         buttonList.add(new GuiButton(NEXT, width / 2 + 45, height - 28, 35, 20, ">"));
+        if (iconChoice != null)
+            buttonList.add(new GuiButton(CLEAR_ICON, width / 2 + 85, height - 28, 60, 20, "No icon"));
         quantityField = new GuiTextField(fontRendererObj, width / 2 - 40, height - 58, 80, 20);
         quantityField.setText("1");
         quantityField.setMaxStringLength(10);
@@ -56,6 +81,9 @@ public final class GuiItemPicker extends GuiKanbanScreen {
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == BACK) {
+            goBack();
+        } else if (button.id == CLEAR_ICON) {
+            iconChoice.chosen(null);
             goBack();
         } else if (button.id == PREVIOUS) {
             page = Math.max(0, page - 1);
@@ -83,7 +111,7 @@ public final class GuiItemPicker extends GuiKanbanScreen {
         if (searchField.textboxKeyTyped(typedChar, keyCode)) {
             refreshItems();
             page = 0;
-        } else if (!quantityField.textboxKeyTyped(typedChar, keyCode)) {
+        } else if (iconChoice != null || !quantityField.textboxKeyTyped(typedChar, keyCode)) {
             super.keyTyped(typedChar, keyCode);
         }
     }
@@ -91,11 +119,13 @@ public final class GuiItemPicker extends GuiKanbanScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
-        drawCenteredString(fontRendererObj, "Select an NEI item (items are not consumed)", width / 2, 18, 0xFFFFFF);
+        drawCenteredString(fontRendererObj, title, width / 2, 18, 0xFFFFFF);
         drawString(fontRendererObj, "Search", width / 2 - 145, 39, 0xAAAAAA);
         searchField.drawTextBox();
-        drawString(fontRendererObj, "Quantity (fluids: mB)", width / 2 - 155, height - 53, 0xAAAAAA);
-        quantityField.drawTextBox();
+        if (iconChoice == null) {
+            drawString(fontRendererObj, "Quantity (fluids: mB)", width / 2 - 155, height - 53, 0xAAAAAA);
+            quantityField.drawTextBox();
+        }
         List<ItemStack> visible = PagedList.pageItems(filteredItems, page, PAGE_SIZE);
         for (int index = 0; index < visible.size(); index++) {
             ItemStack stack = visible.get(index);
@@ -124,6 +154,15 @@ public final class GuiItemPicker extends GuiKanbanScreen {
     }
 
     private void addItem(ItemStack selected) {
+        if (iconChoice != null) {
+            try {
+                iconChoice.chosen(MaterialDisplay.key(selected));
+                goBack();
+            } catch (IllegalArgumentException exception) {
+                KanbanClientState.setResult(false, "UNSUPPORTED_ITEM", exception.getMessage());
+            }
+            return;
+        }
         try {
             int quantity = Integer.parseInt(quantityField.getText());
             Object registryName = Item.itemRegistry.getNameForObject(selected.getItem());

@@ -27,9 +27,7 @@ public final class S2CProjectList implements IMessage {
     public void toBytes(ByteBuf buffer) {
         buffer.writeInt(projects.size());
         for (ProjectSummary project : projects) {
-            PacketData.writeUuid(buffer, project.getId());
-            PacketData.writeString(buffer, project.getName());
-            buffer.writeBoolean(project.isActorIsOwner());
+            PacketData.writeProject(buffer, project);
         }
     }
 
@@ -39,11 +37,7 @@ public final class S2CProjectList implements IMessage {
         if (count < 0 || count > 4096) throw new IllegalArgumentException("Invalid project count: " + count);
         List<ProjectSummary> decoded = new ArrayList<ProjectSummary>(count);
         for (int index = 0; index < count; index++) {
-            decoded.add(
-                new ProjectSummary(
-                    PacketData.readUuid(buffer),
-                    PacketData.readString(buffer, 256),
-                    buffer.readBoolean()));
+            decoded.add(PacketData.readProject(buffer));
         }
         projects = decoded;
     }

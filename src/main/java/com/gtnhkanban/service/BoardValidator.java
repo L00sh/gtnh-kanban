@@ -4,6 +4,13 @@ public final class BoardValidator {
 
     public static final int MAX_NAME_LENGTH = 64;
     public static final int MAX_DESCRIPTION_LENGTH = 512;
+    public static final int MAX_TASK_LENGTH = 128;
+    public static final int MAX_COMMENT_LENGTH = 512;
+    public static final int MAX_SETTING_NAME_LENGTH = 32;
+    public static final int MAX_TASKS = 100;
+    public static final int MAX_COMMENTS = 200;
+    public static final int MAX_COLUMNS = 12;
+    public static final int MAX_TYPES = 32;
 
     private BoardValidator() {}
 
@@ -21,6 +28,26 @@ public final class BoardValidator {
             return ValidationResult.invalid("Description must be at most 512 characters.");
         }
         return ValidationResult.valid(normalizedDescription);
+    }
+
+    public static ValidationResult<String> validateTask(String text) {
+        return validateText(text, "Task", MAX_TASK_LENGTH);
+    }
+
+    public static ValidationResult<String> validateComment(String text) {
+        return validateText(text, "Comment", MAX_COMMENT_LENGTH);
+    }
+
+    public static ValidationResult<String> validateSettingName(String name, String labelName) {
+        return validateText(name, labelName, MAX_SETTING_NAME_LENGTH);
+    }
+
+    private static ValidationResult<String> validateText(String text, String labelName, int maximum) {
+        String normalized = text == null ? "" : text.trim();
+        if (normalized.isEmpty()) return ValidationResult.invalid(labelName + " is required.");
+        if (normalized.length() > maximum)
+            return ValidationResult.invalid(labelName + " must be at most " + maximum + " characters.");
+        return ValidationResult.valid(normalized);
     }
 
     public static ValidationResult<Integer> validateQuantity(int quantity) {

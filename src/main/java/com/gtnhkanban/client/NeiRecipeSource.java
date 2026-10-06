@@ -2,10 +2,8 @@ package com.gtnhkanban.client;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import net.minecraft.item.ItemStack;
@@ -16,7 +14,10 @@ import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.planner.RecipeCandidate;
 import com.gtnhkanban.planner.RecipeSource;
 
-/** The running game's recipes (from NEI) and material classes (from the ore dictionary). Client thread only. */
+/**
+ * The running game's recipes (from NEI) and material classes (from the ore dictionary). Client thread only. Holds no
+ * per-material state of its own; {@link BreakdownJobs} wraps it in a session cache.
+ */
 final class NeiRecipeSource implements RecipeSource {
 
     /** Breakdowns stop here: smelted or mined forms, never the ore processing that produces them. */
@@ -25,8 +26,9 @@ final class NeiRecipeSource implements RecipeSource {
         Arrays.asList("sand", "gravel", "cobblestone", "stone", "blockGlass", "blockGlassColorless"));
     private static final String[] ORE_PREFIXES = { "ore", "rawOre", "crushed", "dustImpure", "dustPure", "cluster" };
 
-    private final Map<ItemKey, List<String>> oreNames = new HashMap<ItemKey, List<String>>();
-    private final Map<ItemKey, String> rejections = new HashMap<ItemKey, String>();
+    /** Why the most recent {@link #recipes} call rejected recipes; read right after it by the cache. */
+    private ItemKey lastLookup;
+    private String lastRejected = "";
 
     @Override
     public List<RecipeCandidate> recipes(ItemKey material) {
@@ -41,14 +43,14 @@ final class NeiRecipeSource implements RecipeSource {
                 rejected.add(choice.name + ": " + exception.getMessage());
             }
         }
-        if (!rejected.isEmpty()) rejections.put(material, rejected.toString());
+        lastLookup = material;
+        lastRejected = rejected.isEmpty() ? "" : rejected.toString();
         return candidates;
     }
 
     @Override
     public String rejectedRecipes(ItemKey material) {
-        String rejected = rejections.get(material);
-        return rejected == null ? "" : rejected;
+        return material.equals(lastLookup) ? lastRejected : "";
     }
 
     @Override
@@ -77,14 +79,11 @@ final class NeiRecipeSource implements RecipeSource {
     }
 
     private List<String> names(ItemKey material) {
-        List<String> names = oreNames.get(material);
-        if (names != null) return names;
-        names = new ArrayList<String>();
+        List<String> names = new ArrayList<String>();
         ItemStack stack = material.isFluid() ? null : MaterialDisplay.stack(material);
         if (stack != null) {
             for (int id : OreDictionary.getOreIDs(stack)) names.add(OreDictionary.getOreName(id));
         }
-        oreNames.put(material, names);
         return names;
     }
 }

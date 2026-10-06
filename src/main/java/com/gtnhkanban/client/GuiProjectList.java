@@ -105,6 +105,17 @@ public final class GuiProjectList extends GuiKanbanScreen {
         }
         for (int index = 0; index < projects.size(); index++) {
             ProjectSummary project = projects.get(index);
+            net.minecraft.item.ItemStack icon = GuiKanbanBoard.iconStack(project.getIcon());
+            if (icon != null) {
+                itemRender.renderItemAndEffectIntoGUI(
+                    fontRendererObj,
+                    mc.getTextureManager(),
+                    icon,
+                    width / 2 - 145,
+                    46 + index * 20);
+                net.minecraft.client.renderer.RenderHelper.disableStandardItemLighting();
+                org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_LIGHTING);
+            }
             drawString(
                 fontRendererObj,
                 fontRendererObj.trimStringToWidth(project.getName(), 130),

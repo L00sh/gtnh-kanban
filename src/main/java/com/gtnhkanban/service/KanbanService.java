@@ -1,15 +1,25 @@
 package com.gtnhkanban.service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.CardView;
+import com.gtnhkanban.api.CommentView;
 import com.gtnhkanban.api.MemberSummary;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
-import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.api.TaskView;
+import com.gtnhkanban.model.BoardColumn;
+import com.gtnhkanban.model.BoardSettings;
+import com.gtnhkanban.model.CardComment;
+import com.gtnhkanban.model.CardTask;
+import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
@@ -30,8 +40,21 @@ public final class KanbanService {
     private final ProjectRepository projects;
     private final ProfileResolver profiles;
     private final ItemResolver items;
+    private final LongSupplier clock;
 
     public KanbanService(ProjectRepository projects, ProfileResolver profiles, ItemResolver items) {
+        this(projects, profiles, items, new LongSupplier() {
+
+            @Override
+            public long getAsLong() {
+                return System.currentTimeMillis();
+            }
+        });
+    }
+
+    /** @param clock epoch milliseconds, for card and comment timestamps */
+    public KanbanService(ProjectRepository projects, ProfileResolver profiles, ItemResolver items, LongSupplier clock) {
+        this.clock = clock;
         this.projects = projects;
         this.profiles = profiles;
         this.items = items;
@@ -129,72 +152,83 @@ public final class KanbanService {
     }
 
     public OperationResult<CardView> createCard(UUID actorId, UUID projectId, String title, String description) {
+        return createCard(actorId, projectId, CardFields.of(title, description));
+    }
+
+    public OperationResult<CardView> createCard(UUID actorId, UUID projectId, CardFields fields) {
         OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
-        if (!authorized.isSuccess()) {
-            return failure(authorized);
-        }
-        ValidationResult<String> validTitle = BoardValidator.validateCardTitle(title);
-        if (!validTitle.isValid()) {
-            return invalid(validTitle);
-        }
-        if (hasCardTitle(authorized.getValue(), validTitle.getValue(), null)) {
-            return OperationResult
-                .failure("DUPLICATE_CARD_TITLE", "A card with that name already exists in this project.");
-        }
-        ValidationResult<String> validDescription = BoardValidator.validateDescription(description);
-        if (!validDescription.isValid()) {
-            return invalid(validDescription);
-        }
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanProject project = authorized.getValue();
+        OperationResult<CardFields> valid = validateFields(project, null, fields);
+        if (!valid.isSuccess()) return failure(valid);
+        CardFields checked = valid.getValue();
         KanbanCard card = new KanbanCard(
             UUID.randomUUID(),
-            validTitle.getValue(),
-            validDescription.getValue(),
-            CardStatus.TODO);
-        if (authorized.getValue()
-            .getCards()
-            .size() >= 4096 || !BoardSizeBudget.fits(authorized.getValue(), BoardSizeBudget.card(card)))
-            return boardTooLarge();
-        authorized.getValue()
-            .addCard(card);
-        projects.saveProject(authorized.getValue());
+            checked.title,
+            checked.description,
+            checked.columnId == null ? projects.getSettings()
+                .firstColumn() : checked.columnId);
+        card.setTypeId(checked.typeId);
+        card.setPriority(checked.priority);
+        card.setIcon(checked.icon);
+        card.setCreatorId(actorId);
+        card.setCreatedAt(clock.getAsLong());
+        if (project.getCards()
+            .size() >= 4096 || !BoardSizeBudget.fits(project, BoardSizeBudget.card(card))) return boardTooLarge();
+        card.setNumber(project.takeCardNumber());
+        project.addCard(card);
+        projects.saveProject(project);
         return OperationResult.success(cardView(card));
     }
 
-    public OperationResult<CardView> updateCard(UUID actorId, UUID projectId, UUID cardId, String title,
-        String description, CardStatus status) {
+    public OperationResult<CardView> updateCard(UUID actorId, UUID projectId, UUID cardId, CardFields fields) {
         OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
-        if (!authorized.isSuccess()) {
-            return failure(authorized);
-        }
-        KanbanCard card = findCard(authorized.getValue(), cardId);
-        if (card == null) {
-            return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
-        }
-        ValidationResult<String> validTitle = BoardValidator.validateCardTitle(title);
-        if (!validTitle.isValid()) {
-            return invalid(validTitle);
-        }
-        if (hasCardTitle(authorized.getValue(), validTitle.getValue(), cardId)) {
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanProject project = authorized.getValue();
+        KanbanCard card = findCard(project, cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        OperationResult<CardFields> valid = validateFields(project, cardId, fields);
+        if (!valid.isSuccess()) return failure(valid);
+        CardFields checked = valid.getValue();
+        long textGrowth = BoardSizeBudget.text(checked.title) + BoardSizeBudget.text(checked.description)
+            - BoardSizeBudget.text(card.getTitle())
+            - BoardSizeBudget.text(card.getDescription());
+        if (textGrowth > 0 && !BoardSizeBudget.fits(project, textGrowth)) return boardTooLarge();
+        card.setTitle(checked.title);
+        card.setDescription(checked.description);
+        if (checked.columnId != null) card.setColumnId(checked.columnId);
+        card.setTypeId(checked.typeId);
+        card.setPriority(checked.priority);
+        card.setIcon(checked.icon);
+        projects.saveProject(project);
+        return OperationResult.success(cardView(card));
+    }
+
+    /** Validates and normalizes card fields; {@code cardId} is the card being edited, or null for a new card. */
+    private OperationResult<CardFields> validateFields(KanbanProject project, UUID cardId, CardFields fields) {
+        ValidationResult<String> validTitle = BoardValidator.validateCardTitle(fields.title);
+        if (!validTitle.isValid()) return invalid(validTitle);
+        if (hasCardTitle(project, validTitle.getValue(), cardId)) {
             return OperationResult
                 .failure("DUPLICATE_CARD_TITLE", "A card with that name already exists in this project.");
         }
-        ValidationResult<String> validDescription = BoardValidator.validateDescription(description);
-        if (!validDescription.isValid()) {
-            return invalid(validDescription);
-        }
-        if (status == null) {
-            return OperationResult.failure("INVALID_STATUS", "A card status is required.");
-        }
-        long textGrowth = BoardSizeBudget.text(validTitle.getValue())
-            + BoardSizeBudget.text(validDescription.getValue())
-            - BoardSizeBudget.text(card.getTitle())
-            - BoardSizeBudget.text(card.getDescription());
-        if (textGrowth > 0 && !BoardSizeBudget.fits(authorized.getValue(), textGrowth)) return boardTooLarge();
-        card.setTitle(validTitle.getValue());
-        card.setDescription(validDescription.getValue());
-        card.setStatus(status);
-        projects.saveProject(authorized.getValue());
-        return OperationResult.success(cardView(card));
+        ValidationResult<String> validDescription = BoardValidator.validateDescription(fields.description);
+        if (!validDescription.isValid()) return invalid(validDescription);
+        BoardSettings settings = projects.getSettings();
+        if (fields.columnId != null && !settings.hasColumn(fields.columnId))
+            return OperationResult.failure("INVALID_COLUMN", "That column no longer exists.");
+        if (fields.typeId != null && !settings.hasType(fields.typeId))
+            return OperationResult.failure("INVALID_TYPE", "That card type no longer exists.");
+        if (fields.icon != null && !isAcceptableMaterial(fields.icon))
+            return OperationResult.failure("UNKNOWN_ITEM", "That icon item is not registered on this server.");
+        return OperationResult.success(
+            new CardFields(
+                validTitle.getValue(),
+                validDescription.getValue(),
+                fields.columnId,
+                fields.typeId,
+                fields.priority,
+                fields.icon));
     }
 
     public OperationResult<Void> deleteCard(UUID actorId, UUID projectId, UUID cardId) {
@@ -208,15 +242,150 @@ public final class KanbanService {
         return OperationResult.success(null);
     }
 
-    public OperationResult<CardView> moveCard(UUID actorId, UUID projectId, UUID cardId, CardStatus status) {
+    public OperationResult<CardView> moveCard(UUID actorId, UUID projectId, UUID cardId, UUID columnId) {
         OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
         if (!authorized.isSuccess()) return failure(authorized);
         KanbanCard card = findCard(authorized.getValue(), cardId);
         if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
-        if (status == null) return OperationResult.failure("INVALID_STATUS", "A card status is required.");
-        card.setStatus(status);
+        if (columnId == null || !projects.getSettings()
+            .hasColumn(columnId)) return OperationResult.failure("INVALID_COLUMN", "That column no longer exists.");
+        card.setColumnId(columnId);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<Void> setProjectIcon(UUID actorId, UUID projectId, ItemKey icon) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        if (icon != null && !isAcceptableMaterial(icon))
+            return OperationResult.failure("UNKNOWN_ITEM", "That icon item is not registered on this server.");
+        authorized.getValue()
+            .setIcon(icon);
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(null);
+    }
+
+    public OperationResult<CardView> addTask(UUID actorId, UUID projectId, UUID cardId, String text) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        ValidationResult<String> validText = BoardValidator.validateTask(text);
+        if (!validText.isValid()) return invalid(validText);
+        if (card.getTasks()
+            .size() >= BoardValidator.MAX_TASKS)
+            return OperationResult.failure("TOO_MANY_TASKS", "This card has too many tasks.");
+        if (!BoardSizeBudget.fits(authorized.getValue(), 40 + BoardSizeBudget.text(validText.getValue())))
+            return boardTooLarge();
+        card.addTask(new CardTask(UUID.randomUUID(), validText.getValue(), false));
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<CardView> setTaskDone(UUID actorId, UUID projectId, UUID cardId, UUID taskId, boolean done) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        CardTask task = taskId == null ? null : card.findTask(taskId);
+        if (task == null) return OperationResult.failure("TASK_NOT_FOUND", "That task does not exist.");
+        task.setDone(done);
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<CardView> deleteTask(UUID actorId, UUID projectId, UUID cardId, UUID taskId) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (taskId == null || !card.removeTask(taskId))
+            return OperationResult.failure("TASK_NOT_FOUND", "That task does not exist.");
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<CardView> addComment(UUID actorId, UUID projectId, UUID cardId, String text) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        ValidationResult<String> validText = BoardValidator.validateComment(text);
+        if (!validText.isValid()) return invalid(validText);
+        if (card.getComments()
+            .size() >= BoardValidator.MAX_COMMENTS)
+            return OperationResult.failure("TOO_MANY_COMMENTS", "This card has too many comments.");
+        if (!BoardSizeBudget.fits(authorized.getValue(), 60 + BoardSizeBudget.text(validText.getValue())))
+            return boardTooLarge();
+        card.addComment(new CardComment(UUID.randomUUID(), actorId, clock.getAsLong(), validText.getValue()));
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    /** Comment authors can delete their own comments; the project owner can delete any. */
+    public OperationResult<CardView> deleteComment(UUID actorId, UUID projectId, UUID cardId, UUID commentId) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        CardComment comment = commentId == null ? null : card.findComment(commentId);
+        if (comment == null) return OperationResult.failure("COMMENT_NOT_FOUND", "That comment does not exist.");
+        if (!actorId.equals(comment.getAuthorId()) && !authorized.getValue()
+            .getOwnerId()
+            .equals(actorId))
+            return OperationResult.failure("FORBIDDEN", "Only the author or the project owner can delete that.");
+        card.removeComment(commentId);
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(cardView(card));
+    }
+
+    public BoardSettings getSettings() {
+        return projects.getSettings();
+    }
+
+    /**
+     * Replaces the server-wide columns (in display order) and card types. Any project member may do this. Cards in a
+     * removed column move to the first column; cards of a removed type lose their type. No card is ever removed.
+     */
+    public OperationResult<BoardSettings> saveSettings(UUID actorId, List<BoardColumn> columns, List<CardType> types) {
+        boolean member = false;
+        for (KanbanProject project : projects.allProjects()) member |= project.isOwnerOrMember(actorId);
+        if (!member) return OperationResult.failure("FORBIDDEN", "Join or create a project to change board settings.");
+        if (columns == null || columns.isEmpty() || columns.size() > BoardValidator.MAX_COLUMNS) {
+            return OperationResult
+                .failure("INVALID_INPUT", "A board needs 1 to " + BoardValidator.MAX_COLUMNS + " columns.");
+        }
+        if (types == null || types.size() > BoardValidator.MAX_TYPES)
+            return OperationResult.failure("INVALID_INPUT", "At most " + BoardValidator.MAX_TYPES + " card types.");
+        Set<UUID> ids = new HashSet<UUID>();
+        Set<String> names = new HashSet<String>();
+        List<BoardColumn> cleanColumns = new ArrayList<BoardColumn>();
+        for (BoardColumn column : columns) {
+            ValidationResult<String> name = BoardValidator.validateSettingName(column.getName(), "Column name");
+            if (!name.isValid()) return invalid(name);
+            if (!ids.add(column.getId()) || !names.add(
+                name.getValue()
+                    .toLowerCase(Locale.ROOT)))
+                return OperationResult.failure("INVALID_INPUT", "Column names must be different.");
+            cleanColumns.add(new BoardColumn(column.getId(), name.getValue()));
+        }
+        names.clear();
+        List<CardType> cleanTypes = new ArrayList<CardType>();
+        for (CardType type : types) {
+            ValidationResult<String> name = BoardValidator.validateSettingName(type.getName(), "Type name");
+            if (!name.isValid()) return invalid(name);
+            if (!ids.add(type.getId()) || !names.add(
+                name.getValue()
+                    .toLowerCase(Locale.ROOT)))
+                return OperationResult.failure("INVALID_INPUT", "Card type names must be different.");
+            cleanTypes.add(new CardType(type.getId(), name.getValue(), type.getColor()));
+        }
+        BoardSettings settings = new BoardSettings(cleanColumns, cleanTypes);
+        projects.saveSettings(settings);
+        for (KanbanProject project : projects.allProjects()) {
+            if (project.fitToSettings(settings)) projects.saveProject(project);
+        }
+        return OperationResult.success(settings);
     }
 
     public OperationResult<RequirementView> addRequirement(UUID actorId, UUID projectId, UUID cardId, ItemKey item,
@@ -551,7 +720,7 @@ public final class KanbanService {
         for (KanbanCard card : project.getCards()) {
             cards.add(cardView(card));
         }
-        return new BoardSnapshot(projectSummary(project, actorId), members, cards);
+        return new BoardSnapshot(projectSummary(project, actorId), members, cards, projects.getSettings());
     }
 
     private ProjectSummary projectSummary(KanbanProject project, UUID actorId) {
@@ -559,7 +728,8 @@ public final class KanbanService {
             project.getId(),
             project.getName(),
             project.getOwnerId()
-                .equals(actorId));
+                .equals(actorId),
+            project.getIcon());
     }
 
     private CardView cardView(KanbanCard card) {
@@ -567,13 +737,38 @@ public final class KanbanService {
         for (ItemRequirement requirement : card.getRequirements()) {
             requirements.add(requirementView(requirement));
         }
+        List<TaskView> tasks = new ArrayList<TaskView>();
+        for (CardTask task : card.getTasks()) tasks.add(new TaskView(task.getId(), task.getText(), task.isDone()));
+        List<CommentView> comments = new ArrayList<CommentView>();
+        for (CardComment comment : card.getComments()) {
+            comments.add(
+                new CommentView(
+                    comment.getId(),
+                    comment.getAuthorId(),
+                    nameOf(comment.getAuthorId()),
+                    comment.getCreatedAt(),
+                    comment.getText()));
+        }
         return new CardView(
             card.getId(),
+            card.getNumber(),
             card.getTitle(),
             card.getDescription(),
-            card.getStatus(),
+            card.getColumnId(),
+            card.getTypeId(),
+            card.getPriority(),
+            card.getCreatorId(),
+            nameOf(card.getCreatorId()),
+            card.getCreatedAt(),
+            card.getIcon(),
             requirements,
-            card.getAssigneeIds());
+            card.getAssigneeIds(),
+            tasks,
+            comments);
+    }
+
+    private String nameOf(UUID playerId) {
+        return playerId == null ? "" : profiles.usernameFor(playerId);
     }
 
     private RequirementView requirementView(ItemRequirement requirement) {

@@ -21,7 +21,7 @@ import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
-import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.KanbanProject;
 import com.gtnhkanban.storage.ProjectRepository;
@@ -98,7 +98,12 @@ public class KanbanServiceTest {
 
         CardView card = created.getValue();
         assertTrue(
-            service.updateCard(MEMBER_ID, projectId, card.getId(), "Power grid", "Updated", CardStatus.IN_PROGRESS)
+            service
+                .updateCard(
+                    MEMBER_ID,
+                    projectId,
+                    card.getId(),
+                    new CardFields("Power grid", "Updated", BoardSettings.IN_PROGRESS, null, null, null))
                 .isSuccess());
         OperationResult<RequirementView> requirement = service
             .addRequirement(MEMBER_ID, projectId, card.getId(), STONE, 64);
@@ -116,10 +121,10 @@ public class KanbanServiceTest {
         BoardSnapshot board = service.getBoard(MEMBER_ID, projectId)
             .getValue();
         assertEquals(
-            CardStatus.IN_PROGRESS,
+            BoardSettings.IN_PROGRESS,
             board.getCards()
                 .get(0)
-                .getStatus());
+                .getColumnId());
         assertTrue(
             board.getCards()
                 .get(0)
@@ -145,7 +150,12 @@ public class KanbanServiceTest {
             service.removeMember(OWNER_ID, projectId, MEMBER_ID)
                 .isSuccess());
         assertFalse(
-            service.updateCard(MEMBER_ID, projectId, card.getId(), "Stale", "", CardStatus.DONE)
+            service
+                .updateCard(
+                    MEMBER_ID,
+                    projectId,
+                    card.getId(),
+                    new CardFields("Stale", "", BoardSettings.DONE, null, null, null))
                 .isSuccess());
         assertEquals(
             "Card",
@@ -202,7 +212,7 @@ public class KanbanServiceTest {
         service.addMember(OWNER_ID, projectId, "Member");
         CardView original = service.createCard(OWNER_ID, projectId, "Power", "Original")
             .getValue();
-        service.moveCard(OWNER_ID, projectId, original.getId(), CardStatus.DONE);
+        service.moveCard(OWNER_ID, projectId, original.getId(), BoardSettings.DONE);
 
         OperationResult<CardView> duplicate = service.createCard(MEMBER_ID, projectId, "  pOwEr  ", "Duplicate");
 
@@ -222,8 +232,11 @@ public class KanbanServiceTest {
         CardView card = service.createCard(OWNER_ID, projectId, "Storage", "Original")
             .getValue();
 
-        OperationResult<CardView> renamed = service
-            .updateCard(OWNER_ID, projectId, card.getId(), " power ", "Changed", CardStatus.DONE);
+        OperationResult<CardView> renamed = service.updateCard(
+            OWNER_ID,
+            projectId,
+            card.getId(),
+            new CardFields(" power ", "Changed", BoardSettings.DONE, null, null, null));
 
         assertFalse(renamed.isSuccess());
         assertEquals("DUPLICATE_CARD_TITLE", renamed.getErrorCode());
@@ -238,10 +251,10 @@ public class KanbanServiceTest {
                 .findCard(card.getId())
                 .getDescription());
         assertEquals(
-            CardStatus.TODO,
+            BoardSettings.BACKLOG,
             projects.findProject(projectId)
                 .findCard(card.getId())
-                .getStatus());
+                .getColumnId());
     }
 
     @Test
@@ -255,7 +268,12 @@ public class KanbanServiceTest {
             service.createCard(OWNER_ID, secondProject, "Power", "")
                 .isSuccess());
         assertTrue(
-            service.updateCard(OWNER_ID, firstProject, card.getId(), " POWER ", "Edited", CardStatus.IN_PROGRESS)
+            service
+                .updateCard(
+                    OWNER_ID,
+                    firstProject,
+                    card.getId(),
+                    new CardFields(" POWER ", "Edited", BoardSettings.IN_PROGRESS, null, null, null))
                 .isSuccess());
     }
 
@@ -312,6 +330,17 @@ public class KanbanServiceTest {
     private static final class InMemoryProjectRepository implements ProjectRepository {
 
         private final Map<UUID, KanbanProject> projects = new HashMap<UUID, KanbanProject>();
+        private BoardSettings settings = BoardSettings.defaults();
+
+        @Override
+        public BoardSettings getSettings() {
+            return settings;
+        }
+
+        @Override
+        public void saveSettings(BoardSettings settings) {
+            this.settings = settings;
+        }
 
         @Override
         public KanbanProject findProject(UUID projectId) {

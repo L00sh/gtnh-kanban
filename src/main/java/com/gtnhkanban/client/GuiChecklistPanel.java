@@ -19,10 +19,13 @@ import org.lwjgl.input.Keyboard;
 
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.api.RequirementView;
+import com.gtnhkanban.api.TaskView;
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.message.C2SDeleteRequirement;
+import com.gtnhkanban.network.message.C2SDeleteTask;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
+import com.gtnhkanban.network.message.C2SSetTaskDone;
 
 /** Scrollable checklist with independently hit-tested controls and nested material rows. */
 final class GuiChecklistPanel {
@@ -54,6 +57,7 @@ final class GuiChecklistPanel {
         final boolean header;
         final MaterialTotals.Total total;
         boolean tools;
+        TaskView task;
 
         Row(RequirementView requirement, int depth) {
             this(requirement, depth, false, null);
@@ -74,6 +78,12 @@ final class GuiChecklistPanel {
 
         static Row total(MaterialTotals.Total total) {
             return new Row(null, 1, false, total);
+        }
+
+        static Row task(TaskView task) {
+            Row row = new Row(null, 0, false, null);
+            row.task = task;
+            return row;
         }
 
         boolean isRequirement() {
@@ -138,6 +148,7 @@ final class GuiChecklistPanel {
                 if (toolsOpen) for (MaterialTotals.Total tool : tools) rows.add(Row.total(tool));
             }
         }
+        if (card != null) for (TaskView task : card.getTasks()) rows.add(Row.task(task));
         if (card != null) for (RequirementView requirement : card.getRequirements()) flatten(requirement, 0, rows);
         scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.size() - capacity())));
         visible = new ArrayList<Row>(rows.subList(scroll, Math.min(rows.size(), scroll + capacity())));
@@ -182,11 +193,15 @@ final class GuiChecklistPanel {
     void draw(int mouseX, int mouseY) {
         refresh();
         Gui.drawRect(left - 2, top - 2, left + width + 2, bottom + 1, 0xAA111111);
-        if (visible.isEmpty())
-            mc.fontRenderer.drawStringWithShadow("No checklist items. Add an item above.", left + 5, top + 5, 0xAAAAAA);
+        if (visible.isEmpty()) mc.fontRenderer
+            .drawStringWithShadow("No tasks or items yet. Add a task or an item above.", left + 5, top + 5, 0xAAAAAA);
         for (int i = 0; i < visible.size(); i++) {
             Row row = visible.get(i);
             int y = top + i * ROW_HEIGHT + 2;
+            if (row.task != null) {
+                drawTaskRow(row.task, y, mouseX, mouseY);
+                continue;
+            }
             if (!row.isRequirement()) {
                 drawTotalsRow(row, y, mouseX, mouseY);
                 continue;
@@ -219,6 +234,17 @@ final class GuiChecklistPanel {
             control(3, left + width - 20, y, 18, "X").drawButton(mc, mouseX, mouseY);
 
         }
+    }
+
+    private void drawTaskRow(TaskView task, int y, int mouseX, int mouseY) {
+        Gui.drawRect(left, y - 1, left + width, y + 20, 0x55334433);
+        String label = (task.isDone() ? "[x] " : "[ ] ") + task.getText();
+        mc.fontRenderer.drawStringWithShadow(
+            mc.fontRenderer.trimStringToWidth(label, width - 30),
+            left + 6,
+            y + 5,
+            task.isDone() ? 0x55FF55 : 0xFFFFFF);
+        control(3, left + width - 20, y, 18, "X").drawButton(mc, mouseX, mouseY);
     }
 
     private void drawTotalsRow(Row row, int y, int mouseX, int mouseY) {
@@ -259,6 +285,12 @@ final class GuiChecklistPanel {
             return java.util.Collections.emptyList();
         int i = (mouseY - top) / ROW_HEIGHT;
         if (i >= visible.size()) return java.util.Collections.emptyList();
+        if (visible.get(i).task != null) {
+            List<String> lines = new ArrayList<String>();
+            lines.add(visible.get(i).task.getText());
+            lines.add("\u00a77Task: click to tick or untick");
+            return lines;
+        }
         if (!visible.get(i)
             .isRequirement()) return totalsTooltip(visible.get(i));
         RequirementView row = visible.get(i).requirement;
@@ -302,6 +334,19 @@ final class GuiChecklistPanel {
         int i = (mouseY - top) / ROW_HEIGHT;
         if (i >= visible.size()) return;
         Row row = visible.get(i);
+        if (row.task != null) {
+            UUID taskId = row.task.getId();
+            if (mouseX >= left + width - 20) {
+                KanbanClientState.removeTaskLocally(projectId, cardId, taskId);
+                KanbanNetwork.CHANNEL.sendToServer(new C2SDeleteTask(projectId, cardId, taskId));
+            } else {
+                boolean done = !row.task.isDone();
+                KanbanClientState.setTaskDoneLocally(projectId, cardId, taskId, done);
+                KanbanNetwork.CHANNEL.sendToServer(new C2SSetTaskDone(projectId, cardId, taskId, done));
+            }
+            refresh();
+            return;
+        }
         if (!row.isRequirement()) {
             if (row.header) {
                 if (row.tools) toolsOpen = !toolsOpen;

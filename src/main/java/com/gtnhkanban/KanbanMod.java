@@ -1,5 +1,7 @@
 package com.gtnhkanban;
 
+import java.util.Map;
+
 import com.gtnhkanban.command.KanbanCommand;
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.KanbanServerTaskQueue;
@@ -13,6 +15,8 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppedEvent;
+import cpw.mods.fml.common.network.NetworkCheckHandler;
+import cpw.mods.fml.relauncher.Side;
 
 @Mod(modid = KanbanMod.MODID, version = Tags.VERSION, name = "GTNH Kanban", acceptedMinecraftVersions = "[1.7.10]")
 public class KanbanMod {
@@ -21,6 +25,13 @@ public class KanbanMod {
 
     @SidedProxy(clientSide = "com.gtnhkanban.proxy.ClientProxy", serverSide = "com.gtnhkanban.proxy.CommonProxy")
     public static CommonProxy proxy;
+
+    /** The server accepts absent clients, but installed peers must use the same build. */
+    @NetworkCheckHandler
+    public boolean checkRemoteMods(Map<String, String> remoteMods, Side remoteSide) {
+        if (!remoteMods.containsKey(MODID)) return remoteSide == Side.CLIENT;
+        return Tags.VERSION.equals(remoteMods.get(MODID));
+    }
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -49,6 +60,7 @@ public class KanbanMod {
     public void serverStopped(FMLServerStoppedEvent event) {
         KanbanServerTaskQueue.clear();
         KanbanNetwork.clearUploads();
+        KanbanNetwork.clearClientConnections();
         KanbanStorage.unload();
     }
 }

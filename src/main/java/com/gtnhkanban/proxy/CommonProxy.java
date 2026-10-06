@@ -1,5 +1,10 @@
 package com.gtnhkanban.proxy;
 
+import java.util.List;
+
+import com.gtnhkanban.api.BoardSnapshot;
+import com.gtnhkanban.api.ProjectSummary;
+
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -14,4 +19,12 @@ public class CommonProxy {
     public void postInit(FMLPostInitializationEvent event) {}
 
     public void serverStarting(FMLServerStartingEvent event) {}
+
+    public void openProjectList() {}
+
+    public void receiveProjectList(List<ProjectSummary> projects) {}
+
+    public void receiveBoard(BoardSnapshot snapshot) {}
+
+    public void receiveOperationResult(boolean success, String code, String message) {}
 }

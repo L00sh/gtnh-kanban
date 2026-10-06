@@ -1,5 +1,7 @@
 package com.gtnhkanban;
 
+import com.gtnhkanban.command.KanbanCommand;
+import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.proxy.CommonProxy;
 
 import cpw.mods.fml.common.Mod;
@@ -19,6 +21,7 @@ public class KanbanMod {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent event) {
+        KanbanNetwork.registerMessages();
         proxy.preInit(event);
     }
 
@@ -35,5 +38,6 @@ public class KanbanMod {
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent event) {
         proxy.serverStarting(event);
+        event.registerServerCommand(new KanbanCommand());
     }
 }

@@ -1,0 +1,13 @@
+package com.gtnhkanban.network.message;
+
+public enum RequestType {
+    LIST_PROJECTS,
+    CREATE_PROJECT,
+    ADD_MEMBER,
+    REMOVE_MEMBER,
+    FETCH_BOARD,
+    CREATE_CARD,
+    UPDATE_CARD,
+    ADD_REQUIREMENT,
+    SET_REQUIREMENT_COMPLETE
+}

@@ -2,12 +2,17 @@ package com.gtnhkanban.network.message;
 
 import java.util.UUID;
 
-public final class C2SCreateCard extends KanbanRequest {
+import com.gtnhkanban.model.ItemKey;
+import com.gtnhkanban.model.Priority;
+
+public final class C2SCreateCard extends CardFieldsRequest {
 
     public C2SCreateCard() {}
 
-    public C2SCreateCard(UUID projectId, String title, String description) {
-        super(title, description, projectId, null, null, null, 0, false, null, null);
+    /** @param columnId null for the first column */
+    public C2SCreateCard(UUID projectId, String title, String description, UUID columnId, UUID typeId,
+        Priority priority, ItemKey icon) {
+        super(title, description, projectId, null, columnId, typeId, priority, icon);
     }
 
     @Override

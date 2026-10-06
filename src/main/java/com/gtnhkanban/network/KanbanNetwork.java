@@ -12,21 +12,28 @@ import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.MaterialNbt;
+import com.gtnhkanban.network.message.C2SAddComment;
 import com.gtnhkanban.network.message.C2SAddMember;
 import com.gtnhkanban.network.message.C2SAddRequirement;
+import com.gtnhkanban.network.message.C2SAddTask;
 import com.gtnhkanban.network.message.C2SCreateCard;
 import com.gtnhkanban.network.message.C2SCreateProject;
 import com.gtnhkanban.network.message.C2SDeleteCard;
+import com.gtnhkanban.network.message.C2SDeleteComment;
 import com.gtnhkanban.network.message.C2SDeleteProject;
 import com.gtnhkanban.network.message.C2SDeleteRequirement;
+import com.gtnhkanban.network.message.C2SDeleteTask;
 import com.gtnhkanban.network.message.C2SExpandRequirement;
 import com.gtnhkanban.network.message.C2SFetchBoard;
 import com.gtnhkanban.network.message.C2SListProjects;
 import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
+import com.gtnhkanban.network.message.C2SSaveSettings;
 import com.gtnhkanban.network.message.C2SSetCardAssigned;
+import com.gtnhkanban.network.message.C2SSetProjectIcon;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
+import com.gtnhkanban.network.message.C2SSetTaskDone;
 import com.gtnhkanban.network.message.C2SUpdateCard;
 import com.gtnhkanban.network.message.C2SUploadBreakdown;
 import com.gtnhkanban.network.message.KanbanRequest;
@@ -36,6 +43,7 @@ import com.gtnhkanban.network.message.S2CBoardSnapshot;
 import com.gtnhkanban.network.message.S2COpenProjectList;
 import com.gtnhkanban.network.message.S2COperationResult;
 import com.gtnhkanban.network.message.S2CProjectList;
+import com.gtnhkanban.service.CardFields;
 import com.gtnhkanban.service.ItemResolver;
 import com.gtnhkanban.service.KanbanService;
 import com.gtnhkanban.service.OperationResult;
@@ -77,6 +85,13 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new SetCardAssignedHandler(), C2SSetCardAssigned.class, 18, Side.SERVER);
         CHANNEL.registerMessage(new ExpandRequirementHandler(), C2SExpandRequirement.class, 19, Side.SERVER);
         CHANNEL.registerMessage(new UploadBreakdownHandler(), C2SUploadBreakdown.class, 20, Side.SERVER);
+        CHANNEL.registerMessage(new SetProjectIconHandler(), C2SSetProjectIcon.class, 21, Side.SERVER);
+        CHANNEL.registerMessage(new AddTaskHandler(), C2SAddTask.class, 22, Side.SERVER);
+        CHANNEL.registerMessage(new SetTaskDoneHandler(), C2SSetTaskDone.class, 23, Side.SERVER);
+        CHANNEL.registerMessage(new DeleteTaskHandler(), C2SDeleteTask.class, 24, Side.SERVER);
+        CHANNEL.registerMessage(new AddCommentHandler(), C2SAddComment.class, 25, Side.SERVER);
+        CHANNEL.registerMessage(new DeleteCommentHandler(), C2SDeleteComment.class, 26, Side.SERVER);
+        CHANNEL.registerMessage(new SaveSettingsHandler(), C2SSaveSettings.class, 27, Side.SERVER);
     }
 
     public static void registerClientMessages() {
@@ -224,20 +239,37 @@ public final class KanbanNetwork {
                     result = service.removeMember(actorId, projectId, request.getMemberId());
                     break;
                 case CREATE_CARD:
-                    result = service.createCard(
-                        actorId,
-                        projectId,
-                        bounded(request.getFirstText(), 64),
-                        bounded(request.getSecondText(), 512));
+                    result = service.createCard(actorId, projectId, cardFields(request));
                     break;
                 case UPDATE_CARD:
-                    result = service.updateCard(
+                    result = service.updateCard(actorId, projectId, request.getCardId(), cardFields(request));
+                    break;
+                case SET_PROJECT_ICON:
+                    result = service.setProjectIcon(actorId, projectId, request.getItem());
+                    break;
+                case ADD_TASK:
+                    result = service.addTask(actorId, projectId, request.getCardId(), request.getFirstText());
+                    break;
+                case SET_TASK_DONE:
+                    result = service.setTaskDone(
                         actorId,
                         projectId,
                         request.getCardId(),
-                        bounded(request.getFirstText(), 64),
-                        bounded(request.getSecondText(), 512),
-                        request.getStatus());
+                        request.getEntryId(),
+                        request.isComplete());
+                    break;
+                case DELETE_TASK:
+                    result = service.deleteTask(actorId, projectId, request.getCardId(), request.getEntryId());
+                    break;
+                case ADD_COMMENT:
+                    result = service.addComment(actorId, projectId, request.getCardId(), request.getFirstText());
+                    break;
+                case DELETE_COMMENT:
+                    result = service.deleteComment(actorId, projectId, request.getCardId(), request.getEntryId());
+                    break;
+                case SAVE_SETTINGS:
+                    C2SSaveSettings settings = (C2SSaveSettings) request;
+                    result = service.saveSettings(actorId, settings.getColumns(), settings.getTypes());
                     break;
                 case DELETE_PROJECT:
                     result = service.deleteProject(actorId, projectId);
@@ -246,7 +278,7 @@ public final class KanbanNetwork {
                     result = service.deleteCard(actorId, projectId, request.getCardId());
                     break;
                 case MOVE_CARD:
-                    result = service.moveCard(actorId, projectId, request.getCardId(), request.getStatus());
+                    result = service.moveCard(actorId, projectId, request.getCardId(), request.getColumnId());
                     break;
                 case ADD_REQUIREMENT:
                     result = service.addRequirement(
@@ -327,7 +359,34 @@ public final class KanbanNetwork {
             sendResult(player, result);
             if (result.isSuccess()) {
                 if (request.getType() == RequestType.DELETE_PROJECT) broadcastProjectLists();
-                else broadcastBoard(projectId);
+                else if (request.getType() == RequestType.SAVE_SETTINGS) broadcastAllBoards();
+                else {
+                    if (request.getType() == RequestType.SET_PROJECT_ICON) broadcastProjectLists();
+                    broadcastBoard(projectId);
+                }
+            }
+        }
+
+        private CardFields cardFields(KanbanRequest request) {
+            return new CardFields(
+                bounded(request.getFirstText(), 64),
+                bounded(request.getSecondText(), 512),
+                request.getColumnId(),
+                request.getTypeId(),
+                request.getPriority(),
+                request.getIcon());
+        }
+
+        /** Settings are server-wide, so every open board may have changed. */
+        private void broadcastAllBoards() {
+            for (Object object : MinecraftServer.getServer()
+                .getConfigurationManager().playerEntityList) {
+                EntityPlayerMP recipient = (EntityPlayerMP) object;
+                if (!supportsClient(recipient)) continue;
+                for (ProjectSummary project : service().listAccessibleProjects(recipient.getUniqueID())) {
+                    OperationResult<BoardSnapshot> board = service().getBoard(recipient.getUniqueID(), project.getId());
+                    if (board.isSuccess()) sendToClient(new S2CBoardSnapshot(board.getValue()), recipient);
+                }
             }
         }
 
@@ -404,6 +463,27 @@ public final class KanbanNetwork {
     }
 
     private static final class UploadBreakdownHandler extends ServerRequestHandler {
+    }
+
+    private static final class SetProjectIconHandler extends ServerRequestHandler {
+    }
+
+    private static final class AddTaskHandler extends ServerRequestHandler {
+    }
+
+    private static final class SetTaskDoneHandler extends ServerRequestHandler {
+    }
+
+    private static final class DeleteTaskHandler extends ServerRequestHandler {
+    }
+
+    private static final class AddCommentHandler extends ServerRequestHandler {
+    }
+
+    private static final class DeleteCommentHandler extends ServerRequestHandler {
+    }
+
+    private static final class SaveSettingsHandler extends ServerRequestHandler {
     }
 
     private static final class SetRequirementQuantityHandler extends ServerRequestHandler {

@@ -1,9 +1,15 @@
 package com.gtnhkanban.network.message;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
+import com.gtnhkanban.api.ProjectSummary;
+import com.gtnhkanban.model.BoardColumn;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.model.ItemKey;
 
 import io.netty.buffer.ByteBuf;
@@ -49,6 +55,59 @@ final class PacketData {
 
     static ItemKey readMaterial(ByteBuf buffer) {
         return new ItemKey(readString(buffer, 1024), buffer.readInt(), buffer.readBoolean(), readString(buffer, 16384));
+    }
+
+    static void writeOptionalMaterial(ByteBuf buffer, ItemKey material) {
+        buffer.writeBoolean(material != null);
+        if (material != null) writeMaterial(buffer, material);
+    }
+
+    static ItemKey readOptionalMaterial(ByteBuf buffer) {
+        return buffer.readBoolean() ? readMaterial(buffer) : null;
+    }
+
+    static void writeProject(ByteBuf buffer, ProjectSummary project) {
+        writeUuid(buffer, project.getId());
+        writeString(buffer, project.getName());
+        buffer.writeBoolean(project.isActorIsOwner());
+        writeOptionalMaterial(buffer, project.getIcon());
+    }
+
+    static ProjectSummary readProject(ByteBuf buffer) {
+        return new ProjectSummary(
+            readUuid(buffer),
+            readString(buffer, 256),
+            buffer.readBoolean(),
+            readOptionalMaterial(buffer));
+    }
+
+    static void writeSettings(ByteBuf buffer, BoardSettings settings) {
+        buffer.writeInt(
+            settings.getColumns()
+                .size());
+        for (BoardColumn column : settings.getColumns()) {
+            writeUuid(buffer, column.getId());
+            writeString(buffer, column.getName());
+        }
+        buffer.writeInt(
+            settings.getTypes()
+                .size());
+        for (CardType type : settings.getTypes()) {
+            writeUuid(buffer, type.getId());
+            writeString(buffer, type.getName());
+            buffer.writeInt(type.getColor());
+        }
+    }
+
+    static BoardSettings readSettings(ByteBuf buffer) {
+        int columnCount = readCount(buffer, 64);
+        List<BoardColumn> columns = new ArrayList<BoardColumn>();
+        for (int i = 0; i < columnCount; i++) columns.add(new BoardColumn(readUuid(buffer), readString(buffer, 256)));
+        int typeCount = readCount(buffer, 128);
+        List<CardType> types = new ArrayList<CardType>();
+        for (int i = 0; i < typeCount; i++)
+            types.add(new CardType(readUuid(buffer), readString(buffer, 256), buffer.readInt()));
+        return new BoardSettings(columns, types);
     }
 
     static int readCount(ByteBuf buffer, int maximum) {

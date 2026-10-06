@@ -22,7 +22,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
@@ -219,7 +219,7 @@ public class KanbanStoreTest {
 
     private static KanbanProject project(String name) {
         KanbanProject project = new KanbanProject(UUID.randomUUID(), name, UUID.randomUUID());
-        KanbanCard card = new KanbanCard(UUID.randomUUID(), "Card", "", CardStatus.TODO);
+        KanbanCard card = new KanbanCard(UUID.randomUUID(), "Card", "", BoardSettings.BACKLOG);
         card.addRequirement(new ItemRequirement(UUID.randomUUID(), new ItemKey("minecraft:stone", 0), 4, false));
         project.addCard(card);
         return project;

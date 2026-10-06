@@ -26,6 +26,7 @@ import net.minecraft.nbt.NBTTagList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.KanbanProject;
 
 /**
@@ -45,12 +46,14 @@ public final class KanbanStore implements ProjectRepository {
     private static final Logger LOG = LogManager.getLogger("GTNH Kanban");
     private static final String DATA = "data";
     private static final String PROJECTS = "projects";
+    private static final String SETTINGS = "settings";
     private static final int NBT_COMPOUND = 10;
 
     private final File file;
     private final File backupFile;
     private final File tempFile;
     private final Map<UUID, KanbanProject> projects = new LinkedHashMap<UUID, KanbanProject>();
+    private BoardSettings settings = BoardSettings.defaults();
     private boolean dirty;
     private boolean writable = true;
     /** False while the live file is unreadable, so a save never copies it over a good backup. */
@@ -87,6 +90,7 @@ public final class KanbanStore implements ProjectRepository {
                 rethrowFatal(exception);
                 LOG.error("Could not read kanban data from {}", file, exception);
                 projects.clear();
+                settings = BoardSettings.defaults();
                 liveFileReadable = false;
                 if (!preserveDamagedFile()) {
                     writable = false;
@@ -107,6 +111,7 @@ public final class KanbanStore implements ProjectRepository {
                 rethrowFatal(exception);
                 LOG.error("Could not read kanban backup from {}", backupFile, exception);
                 projects.clear();
+                settings = BoardSettings.defaults();
             }
         }
 
@@ -135,8 +140,11 @@ public final class KanbanStore implements ProjectRepository {
             input.close();
         }
         if (!root.hasKey(DATA, NBT_COMPOUND)) throw new IOException("Missing '" + DATA + "' compound");
-        NBTTagList encodedProjects = root.getCompoundTag(DATA)
-            .getTagList(PROJECTS, NBT_COMPOUND);
+        NBTTagCompound data = root.getCompoundTag(DATA);
+        settings = data.hasKey(SETTINGS, NBT_COMPOUND)
+            ? KanbanNbtCodec.readSettings(data.getCompoundTag(SETTINGS), problems)
+            : BoardSettings.defaults();
+        NBTTagList encodedProjects = data.getTagList(PROJECTS, NBT_COMPOUND);
         for (int index = 0; index < encodedProjects.tagCount(); index++) {
             KanbanProject project;
             try {
@@ -150,6 +158,10 @@ public final class KanbanStore implements ProjectRepository {
                 continue;
             }
             projects.put(project.getId(), project);
+        }
+        for (KanbanProject project : projects.values()) {
+            if (project.fitToSettings(settings))
+                problems.add("Moved cards in project " + project.getId() + " off a removed column or type");
         }
     }
 
@@ -223,6 +235,7 @@ public final class KanbanStore implements ProjectRepository {
         }
         NBTTagCompound data = new NBTTagCompound();
         data.setTag(PROJECTS, encodedProjects);
+        data.setTag(SETTINGS, KanbanNbtCodec.writeSettings(settings));
         NBTTagCompound root = new NBTTagCompound();
         root.setTag(DATA, data);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -248,6 +261,18 @@ public final class KanbanStore implements ProjectRepository {
 
     public boolean isDirty() {
         return dirty;
+    }
+
+    @Override
+    public BoardSettings getSettings() {
+        return settings;
+    }
+
+    @Override
+    public void saveSettings(BoardSettings settings) {
+        requireWritable();
+        this.settings = settings;
+        dirty = true;
     }
 
     @Override

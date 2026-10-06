@@ -15,6 +15,8 @@ public final class KanbanProject {
     private final UUID ownerId;
     private final Set<UUID> memberIds;
     private final List<KanbanCard> cards;
+    private int nextCardNumber = 1;
+    private ItemKey icon;
 
     public KanbanProject(UUID id, String name, UUID ownerId) {
         this(id, name, ownerId, Collections.<UUID>emptySet(), Collections.<KanbanCard>emptyList());
@@ -27,6 +29,49 @@ public final class KanbanProject {
         this.memberIds = new LinkedHashSet<UUID>(Objects.requireNonNull(memberIds, "memberIds"));
         this.memberIds.remove(ownerId);
         this.cards = new ArrayList<KanbanCard>(Objects.requireNonNull(cards, "cards"));
+    }
+
+    /**
+     * Moves cards whose column no longer exists to the first column and clears types that no longer exist. Cards are
+     * never removed.
+     *
+     * @return whether anything changed
+     */
+    public boolean fitToSettings(BoardSettings settings) {
+        boolean changed = false;
+        for (KanbanCard card : cards) {
+            if (!settings.hasColumn(card.getColumnId())) {
+                card.setColumnId(settings.firstColumn());
+                changed = true;
+            }
+            if (card.getTypeId() != null && !settings.hasType(card.getTypeId())) {
+                card.setTypeId(null);
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    /** Hands out the next per-project card number. */
+    public int takeCardNumber() {
+        return nextCardNumber++;
+    }
+
+    public int getNextCardNumber() {
+        return nextCardNumber;
+    }
+
+    public void setNextCardNumber(int nextCardNumber) {
+        this.nextCardNumber = Math.max(1, nextCardNumber);
+    }
+
+    /** Null when the project has no icon. */
+    public ItemKey getIcon() {
+        return icon;
+    }
+
+    public void setIcon(ItemKey icon) {
+        this.icon = icon;
     }
 
     public UUID getId() {

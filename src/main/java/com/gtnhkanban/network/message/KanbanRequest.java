@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.gtnhkanban.model.CardStatus;
 import com.gtnhkanban.model.ItemKey;
+import com.gtnhkanban.model.Priority;
 import com.gtnhkanban.model.RecipePlan;
 
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
@@ -83,6 +84,23 @@ public abstract class KanbanRequest implements IMessage {
     protected void readExtra(ByteBuf buffer) {}
 
     public RecipePlan getRecipePlan() {
+        return null;
+    }
+
+    /** Card column for card requests; null otherwise. */
+    public UUID getColumnId() {
+        return null;
+    }
+
+    public UUID getTypeId() {
+        return null;
+    }
+
+    public Priority getPriority() {
+        return Priority.NONE;
+    }
+
+    public ItemKey getIcon() {
         return null;
     }
 

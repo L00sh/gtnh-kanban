@@ -19,6 +19,7 @@ import org.junit.Test;
 
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.api.RequirementView;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.KanbanProject;
 import com.gtnhkanban.model.RecipeIngredient;
@@ -44,6 +45,18 @@ public class BreakdownServiceTest {
     public void setUp() {
         final Set<ItemKey> registered = new HashSet<ItemKey>(Arrays.asList(MACHINE, PLATE, INGOT, HAMMER));
         service = new KanbanService(new ProjectRepository() {
+
+            private BoardSettings settings = BoardSettings.defaults();
+
+            @Override
+            public BoardSettings getSettings() {
+                return settings;
+            }
+
+            @Override
+            public void saveSettings(BoardSettings value) {
+                settings = value;
+            }
 
             @Override
             public KanbanProject findProject(UUID id) {

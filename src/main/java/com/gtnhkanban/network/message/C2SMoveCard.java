@@ -2,14 +2,12 @@ package com.gtnhkanban.network.message;
 
 import java.util.UUID;
 
-import com.gtnhkanban.model.CardStatus;
-
-public final class C2SMoveCard extends KanbanRequest {
+public final class C2SMoveCard extends CardFieldsRequest {
 
     public C2SMoveCard() {}
 
-    public C2SMoveCard(UUID projectId, UUID cardId, CardStatus status) {
-        super("", "", projectId, cardId, null, null, 0, false, status, null);
+    public C2SMoveCard(UUID projectId, UUID cardId, UUID columnId) {
+        super("", "", projectId, cardId, columnId, null, null, null);
     }
 
     @Override

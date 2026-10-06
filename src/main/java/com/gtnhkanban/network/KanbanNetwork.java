@@ -5,7 +5,6 @@ import java.util.UUID;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.World;
 import net.minecraftforge.fluids.FluidRegistry;
 
 import com.gtnhkanban.KanbanMod;
@@ -39,7 +38,7 @@ import com.gtnhkanban.service.ItemResolver;
 import com.gtnhkanban.service.KanbanService;
 import com.gtnhkanban.service.OperationResult;
 import com.gtnhkanban.service.ProfileResolver;
-import com.gtnhkanban.storage.KanbanWorldData;
+import com.gtnhkanban.storage.KanbanStorage;
 import com.mojang.authlib.GameProfile;
 
 import cpw.mods.fml.common.FMLLog;
@@ -89,12 +88,12 @@ public final class KanbanNetwork {
 
     private static void requestProjectList(EntityPlayerMP player, boolean openScreen) {
         if (openScreen) CHANNEL.sendTo(new S2COpenProjectList(), player);
-        KanbanService service = service(player.worldObj);
+        KanbanService service = service();
         CHANNEL.sendTo(new S2CProjectList(service.listAccessibleProjects(player.getUniqueID())), player);
     }
 
-    private static KanbanService service(final World world) {
-        return new KanbanService(KanbanWorldData.get(world), new ProfileResolver() {
+    private static KanbanService service() {
+        return new KanbanService(KanbanStorage.get(), new ProfileResolver() {
 
             @Override
             public UUID resolveUsername(String username) {
@@ -160,8 +159,19 @@ public final class KanbanNetwork {
         }
 
         private void process(EntityPlayerMP player, KanbanRequest request) {
-            KanbanService service = service(player.worldObj);
+            KanbanService service = service();
             UUID actorId = player.getUniqueID();
+            if (request.getType() != RequestType.LIST_PROJECTS && request.getType() != RequestType.FETCH_BOARD
+                && !KanbanStorage.get()
+                    .isWritable()) {
+                CHANNEL.sendTo(
+                    new S2COperationResult(
+                        false,
+                        "STORAGE_READ_ONLY",
+                        "Kanban data for this world could not be loaded, so editing is disabled. See the server log."),
+                    player);
+                return;
+            }
             if (request.getType() == RequestType.LIST_PROJECTS) {
                 requestProjectList(player);
                 return;
@@ -285,8 +295,7 @@ public final class KanbanNetwork {
             MinecraftServer server = MinecraftServer.getServer();
             for (Object object : server.getConfigurationManager().playerEntityList) {
                 EntityPlayerMP recipient = (EntityPlayerMP) object;
-                OperationResult<BoardSnapshot> result = service(recipient.worldObj)
-                    .getBoard(recipient.getUniqueID(), projectId);
+                OperationResult<BoardSnapshot> result = service().getBoard(recipient.getUniqueID(), projectId);
                 if (result.isSuccess()) CHANNEL.sendTo(new S2CBoardSnapshot(result.getValue()), recipient);
             }
         }
@@ -295,9 +304,8 @@ public final class KanbanNetwork {
             for (Object object : MinecraftServer.getServer()
                 .getConfigurationManager().playerEntityList) {
                 EntityPlayerMP recipient = (EntityPlayerMP) object;
-                CHANNEL.sendTo(
-                    new S2CProjectList(service(recipient.worldObj).listAccessibleProjects(recipient.getUniqueID())),
-                    recipient);
+                CHANNEL
+                    .sendTo(new S2CProjectList(service().listAccessibleProjects(recipient.getUniqueID())), recipient);
             }
         }
     }

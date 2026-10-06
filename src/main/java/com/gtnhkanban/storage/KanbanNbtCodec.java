@@ -64,24 +64,38 @@ public final class KanbanNbtCodec {
     }
 
     public static KanbanProject readProject(NBTTagCompound source) {
+        return readProject(source, new ArrayList<String>());
+    }
+
+    /**
+     * Decodes a project, repairing or skipping damaged entries instead of failing the whole project. Each repair is
+     * described in {@code problems}. Throws only when the owner is unreadable, since access cannot be reconstructed.
+     */
+    public static KanbanProject readProject(NBTTagCompound source, List<String> problems) {
+        UUID ownerId = readUuid(source, OWNER_ID);
+        UUID projectId = readUuidOrReplace(source, PROJECT_ID, "project", problems);
+
         Set<UUID> memberIds = new LinkedHashSet<UUID>();
         NBTTagList members = source.getTagList(MEMBERS, NBT_COMPOUND);
         for (int index = 0; index < members.tagCount(); index++) {
-            memberIds.add(readUuid(members.getCompoundTagAt(index), PROJECT_ID));
+            try {
+                memberIds.add(readUuid(members.getCompoundTagAt(index), PROJECT_ID));
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable member in project " + projectId + ": " + exception);
+            }
         }
 
         List<KanbanCard> cards = new ArrayList<KanbanCard>();
         NBTTagList encodedCards = source.getTagList(CARDS, NBT_COMPOUND);
         for (int index = 0; index < encodedCards.tagCount(); index++) {
-            cards.add(readCard(encodedCards.getCompoundTagAt(index)));
+            try {
+                cards.add(readCard(encodedCards.getCompoundTagAt(index), problems));
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable card in project " + projectId + ": " + exception);
+            }
         }
 
-        return new KanbanProject(
-            readUuid(source, PROJECT_ID),
-            source.getString(PROJECT_NAME),
-            readUuid(source, OWNER_ID),
-            memberIds,
-            cards);
+        return new KanbanProject(projectId, source.getString(PROJECT_NAME), ownerId, memberIds, cards);
     }
 
     private static NBTTagCompound writeCard(KanbanCard card) {
@@ -111,23 +125,27 @@ public final class KanbanNbtCodec {
         return target;
     }
 
-    private static KanbanCard readCard(NBTTagCompound source) {
+    private static KanbanCard readCard(NBTTagCompound source, List<String> problems) {
+        UUID cardId = readUuidOrReplace(source, CARD_ID, "card", problems);
         List<ItemRequirement> requirements = new ArrayList<ItemRequirement>();
         NBTTagList encodedRequirements = source.getTagList(REQUIREMENTS, NBT_COMPOUND);
         // Legacy versions did not cap flat roots. Preserve them so a later save cannot discard projects.
         int[] remaining = { Math.max(4096, encodedRequirements.tagCount()) };
-        for (int index = 0; index < encodedRequirements.tagCount(); index++) {
-            requirements.add(readRequirement(encodedRequirements.getCompoundTagAt(index), 1, remaining));
-        }
+        readRequirements(encodedRequirements, 1, remaining, cardId, problems, requirements);
         KanbanCard card = new KanbanCard(
-            readUuid(source, CARD_ID),
+            cardId,
             source.getString(CARD_TITLE),
             source.getString(CARD_DESCRIPTION),
             readStatus(source.getString(CARD_STATUS)),
             requirements);
         NBTTagList assigned = source.getTagList("assignees", NBT_COMPOUND);
-        for (int index = 0; index < assigned.tagCount(); index++)
-            card.setAssigned(readUuid(assigned.getCompoundTagAt(index), "id"), true);
+        for (int index = 0; index < assigned.tagCount(); index++) {
+            try {
+                card.setAssigned(readUuid(assigned.getCompoundTagAt(index), "id"), true);
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable assignee on card " + cardId + ": " + exception);
+            }
+        }
         return card;
     }
 
@@ -166,20 +184,35 @@ public final class KanbanNbtCodec {
         return tag;
     }
 
-    private static ItemRequirement readRequirement(NBTTagCompound tag, int depth, int[] remaining) {
+    private static void readRequirements(NBTTagList encoded, int depth, int[] remaining, UUID cardId,
+        List<String> problems, List<ItemRequirement> target) {
+        for (int index = 0; index < encoded.tagCount(); index++) {
+            try {
+                target.add(readRequirement(encoded.getCompoundTagAt(index), depth, remaining, cardId, problems));
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable checklist entry on card " + cardId + ": " + exception);
+            }
+        }
+    }
+
+    private static ItemRequirement readRequirement(NBTTagCompound tag, int depth, int[] remaining, UUID cardId,
+        List<String> problems) {
         if (depth > 16 || --remaining[0] < 0) throw new IllegalArgumentException("Saved material tree exceeds limits.");
         List<ItemRequirement> children = new ArrayList<ItemRequirement>();
-        NBTTagList encoded = tag.getTagList("children", NBT_COMPOUND);
-        for (int index = 0; index < encoded.tagCount(); index++)
-            children.add(readRequirement(encoded.getCompoundTagAt(index), depth + 1, remaining));
+        readRequirements(tag.getTagList("children", NBT_COMPOUND), depth + 1, remaining, cardId, problems, children);
+        int quantity = tag.getInteger(QUANTITY);
+        if (quantity < 1) {
+            problems.add("Raised checklist quantity " + quantity + " to 1 on card " + cardId);
+            quantity = 1;
+        }
         return new ItemRequirement(
-            readUuid(tag, REQUIREMENT_ID),
+            readUuidOrReplace(tag, REQUIREMENT_ID, "checklist entry", problems),
             new ItemKey(
                 tag.getString(ITEM_NAME),
                 tag.getInteger(ITEM_METADATA),
                 tag.getBoolean("fluid"),
                 tag.getString("itemNbt")),
-            tag.getInteger(QUANTITY),
+            quantity,
             tag.getBoolean(COMPLETE),
             tag.getInteger("perBatch"),
             tag.getBoolean("reusable"),
@@ -199,5 +232,15 @@ public final class KanbanNbtCodec {
 
     private static UUID readUuid(NBTTagCompound source, String key) {
         return UUID.fromString(source.getString(key));
+    }
+
+    private static UUID readUuidOrReplace(NBTTagCompound source, String key, String label, List<String> problems) {
+        try {
+            return readUuid(source, key);
+        } catch (IllegalArgumentException exception) {
+            UUID replacement = UUID.randomUUID();
+            problems.add("Gave " + label + " with unreadable id '" + source.getString(key) + "' new id " + replacement);
+            return replacement;
+        }
     }
 }

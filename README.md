@@ -26,6 +26,6 @@ From this directory:
 ./gradlew clean build
 ```
 
-Install `build/libs/gtnhkanban-<version>.jar` in the GTNH server and every player's client `mods/` directory. Do not install the `-dev` or `-sources` JAR. Replace the older Kanban JAR, then restart the server and clients.
+Install `build/libs/gtnhkanban-<version>.jar` in the GTNH server's `mods/` directory. Client installation is optional: players without Kanban can join and play normally, but need the same JAR in their client `mods/` directory to use the board GUI, checklist, HUD and hotkey. Running `/kanban` without the client mod shows an installation message. Do not install the `-dev` or `-sources` JAR. Replace the older Kanban JAR, then restart the server and clients.
 
-Update all clients and the server together for the assignment/material-tree release because the network messages changed. Existing flat checklist saves load with no recipe expansion and no card assignees.
+Update the server and all clients that have Kanban installed together. Installed clients must match the server build; incompatible versions are rejected during connection. Clients without Kanban are accepted. On Forge/GTNH servers, a client with Kanban still requires the server to have Kanban. Optional installation applies only to this mod; other GTNH mods retain their own requirements. Existing flat checklist saves load with no recipe expansion and no card assignees.

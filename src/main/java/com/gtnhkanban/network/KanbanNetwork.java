@@ -59,6 +59,7 @@ public final class KanbanNetwork {
 
     public static void registerMessages() {
         KanbanServerTaskQueue.register();
+        KanbanClientConnections.register();
         CHANNEL.registerMessage(new ListProjectsHandler(), C2SListProjects.class, 0, Side.SERVER);
         CHANNEL.registerMessage(new CreateProjectHandler(), C2SCreateProject.class, 1, Side.SERVER);
         CHANNEL.registerMessage(new AddMemberHandler(), C2SAddMember.class, 2, Side.SERVER);
@@ -90,14 +91,27 @@ public final class KanbanNetwork {
         BreakdownUploads.clear();
     }
 
+    public static boolean supportsClient(EntityPlayerMP player) {
+        return KanbanClientConnections.supportsKanban(player);
+    }
+
+    public static void clearClientConnections() {
+        KanbanClientConnections.clear();
+    }
+
+    private static void sendToClient(IMessage message, EntityPlayerMP player) {
+        if (supportsClient(player)) CHANNEL.sendTo(message, player);
+    }
+
     public static void requestProjectList(EntityPlayerMP player) {
         requestProjectList(player, true);
     }
 
     private static void requestProjectList(EntityPlayerMP player, boolean openScreen) {
-        if (openScreen) CHANNEL.sendTo(new S2COpenProjectList(), player);
+        if (!supportsClient(player)) return;
+        if (openScreen) sendToClient(new S2COpenProjectList(), player);
         KanbanService service = service();
-        CHANNEL.sendTo(new S2CProjectList(service.listAccessibleProjects(player.getUniqueID())), player);
+        sendToClient(new S2CProjectList(service.listAccessibleProjects(player.getUniqueID())), player);
     }
 
     private static KanbanService service() {
@@ -149,6 +163,7 @@ public final class KanbanNetwork {
         @Override
         public IMessage onMessage(final KanbanRequest request, final MessageContext context) {
             final EntityPlayerMP player = context.getServerHandler().playerEntity;
+            if (!supportsClient(player)) return null;
             KanbanServerTaskQueue.enqueue(new Runnable() {
 
                 @Override
@@ -157,7 +172,7 @@ public final class KanbanNetwork {
                         process(player, request);
                     } catch (RuntimeException exception) {
                         FMLLog.severe("GTNH Kanban request failed: %s", exception.toString());
-                        CHANNEL.sendTo(
+                        sendToClient(
                             new S2COperationResult(false, "INTERNAL_ERROR", "The request could not be completed."),
                             player);
                     }
@@ -167,12 +182,13 @@ public final class KanbanNetwork {
         }
 
         private void process(EntityPlayerMP player, KanbanRequest request) {
+            if (!supportsClient(player)) return;
             KanbanService service = service();
             UUID actorId = player.getUniqueID();
             if (request.getType() != RequestType.LIST_PROJECTS && request.getType() != RequestType.FETCH_BOARD
                 && !KanbanStorage.get()
                     .isWritable()) {
-                CHANNEL.sendTo(
+                sendToClient(
                     new S2COperationResult(
                         false,
                         "STORAGE_READ_ONLY",
@@ -193,7 +209,7 @@ public final class KanbanNetwork {
             }
             if (request.getType() == RequestType.FETCH_BOARD) {
                 OperationResult<BoardSnapshot> result = service.getBoard(actorId, request.getProjectId());
-                if (result.isSuccess()) CHANNEL.sendTo(new S2CBoardSnapshot(result.getValue()), player);
+                if (result.isSuccess()) sendToClient(new S2CBoardSnapshot(result.getValue()), player);
                 else sendResult(player, result);
                 return;
             }
@@ -303,7 +319,7 @@ public final class KanbanNetwork {
                     result = service.deleteRequirement(actorId, projectId, request.getCardId(), request.getEntryId());
                     break;
                 default:
-                    CHANNEL.sendTo(
+                    sendToClient(
                         new S2COperationResult(false, "INVALID_REQUEST", "That request is not supported."),
                         player);
                     return;
@@ -320,16 +336,18 @@ public final class KanbanNetwork {
         }
 
         private void sendResult(EntityPlayerMP player, OperationResult<?> result) {
-            CHANNEL
-                .sendTo(new S2COperationResult(result.isSuccess(), result.getErrorCode(), result.getMessage()), player);
+            sendToClient(
+                new S2COperationResult(result.isSuccess(), result.getErrorCode(), result.getMessage()),
+                player);
         }
 
         private void broadcastBoard(UUID projectId) {
             MinecraftServer server = MinecraftServer.getServer();
             for (Object object : server.getConfigurationManager().playerEntityList) {
                 EntityPlayerMP recipient = (EntityPlayerMP) object;
+                if (!supportsClient(recipient)) continue;
                 OperationResult<BoardSnapshot> result = service().getBoard(recipient.getUniqueID(), projectId);
-                if (result.isSuccess()) CHANNEL.sendTo(new S2CBoardSnapshot(result.getValue()), recipient);
+                if (result.isSuccess()) sendToClient(new S2CBoardSnapshot(result.getValue()), recipient);
             }
         }
 
@@ -337,8 +355,8 @@ public final class KanbanNetwork {
             for (Object object : MinecraftServer.getServer()
                 .getConfigurationManager().playerEntityList) {
                 EntityPlayerMP recipient = (EntityPlayerMP) object;
-                CHANNEL
-                    .sendTo(new S2CProjectList(service().listAccessibleProjects(recipient.getUniqueID())), recipient);
+                if (!supportsClient(recipient)) continue;
+                sendToClient(new S2CProjectList(service().listAccessibleProjects(recipient.getUniqueID())), recipient);
             }
         }
     }

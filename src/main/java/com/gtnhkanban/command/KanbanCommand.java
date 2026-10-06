@@ -25,7 +25,14 @@ public final class KanbanCommand extends CommandBase {
             sender.addChatMessage(new ChatComponentText("This command can only be used by a player."));
             return;
         }
-        KanbanNetwork.requestProjectList((EntityPlayerMP) sender);
+        EntityPlayerMP player = (EntityPlayerMP) sender;
+        if (!KanbanNetwork.supportsClient(player)) {
+            sender.addChatMessage(
+                new ChatComponentText(
+                    "Install the server's version of GTNH Kanban on your client to use the board, checklist and HUD. You can still play without it."));
+            return;
+        }
+        KanbanNetwork.requestProjectList(player);
     }
 
     @Override

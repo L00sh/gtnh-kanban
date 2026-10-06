@@ -24,6 +24,11 @@ public final class KanbanServerTaskQueue {
         TASKS.add(task);
     }
 
+    /** Drops work left over from a stopped server so it can never run against the next world. */
+    public static void clear() {
+        TASKS.clear();
+    }
+
     @SubscribeEvent
     public void onServerTick(TickEvent.ServerTickEvent event) {
         if (event.phase != TickEvent.Phase.START) {

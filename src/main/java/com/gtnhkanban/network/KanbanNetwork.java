@@ -68,6 +68,13 @@ public final class KanbanNetwork {
     public static void registerMessages() {
         KanbanServerTaskQueue.register();
         KanbanClientConnections.register();
+        // Server-to-client messages are registered on both physical sides: the server needs their ids to encode
+        // them, the client to decode them. FML builds client channels on dedicated servers too, and these handlers
+        // only call the proxy, which does nothing there.
+        CHANNEL.registerMessage(new ClientOpenHandler(), S2COpenProjectList.class, 9, Side.CLIENT);
+        CHANNEL.registerMessage(new ClientProjectListHandler(), S2CProjectList.class, 10, Side.CLIENT);
+        CHANNEL.registerMessage(new ClientBoardHandler(), S2CBoardSnapshot.class, 11, Side.CLIENT);
+        CHANNEL.registerMessage(new ClientResultHandler(), S2COperationResult.class, 12, Side.CLIENT);
         CHANNEL.registerMessage(new ListProjectsHandler(), C2SListProjects.class, 0, Side.SERVER);
         CHANNEL.registerMessage(new CreateProjectHandler(), C2SCreateProject.class, 1, Side.SERVER);
         CHANNEL.registerMessage(new AddMemberHandler(), C2SAddMember.class, 2, Side.SERVER);
@@ -92,13 +99,6 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new AddCommentHandler(), C2SAddComment.class, 25, Side.SERVER);
         CHANNEL.registerMessage(new DeleteCommentHandler(), C2SDeleteComment.class, 26, Side.SERVER);
         CHANNEL.registerMessage(new SaveSettingsHandler(), C2SSaveSettings.class, 27, Side.SERVER);
-    }
-
-    public static void registerClientMessages() {
-        CHANNEL.registerMessage(new ClientOpenHandler(), S2COpenProjectList.class, 9, Side.CLIENT);
-        CHANNEL.registerMessage(new ClientProjectListHandler(), S2CProjectList.class, 10, Side.CLIENT);
-        CHANNEL.registerMessage(new ClientBoardHandler(), S2CBoardSnapshot.class, 11, Side.CLIENT);
-        CHANNEL.registerMessage(new ClientResultHandler(), S2COperationResult.class, 12, Side.CLIENT);
     }
 
     /** Drops unfinished uploads from a stopped server. */

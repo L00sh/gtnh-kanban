@@ -10,7 +10,6 @@ import com.gtnhkanban.client.BreakdownJobs;
 import com.gtnhkanban.client.GuiProjectList;
 import com.gtnhkanban.client.KanbanClientControls;
 import com.gtnhkanban.client.KanbanClientState;
-import com.gtnhkanban.network.KanbanNetwork;
 
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 
@@ -19,7 +18,6 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void init(FMLInitializationEvent event) {
         super.init(event);
-        KanbanNetwork.registerClientMessages();
         KanbanClientControls.register();
     }
 

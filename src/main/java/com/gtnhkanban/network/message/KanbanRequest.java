@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import com.gtnhkanban.model.CardStatus;
 import com.gtnhkanban.model.ItemKey;
+import com.gtnhkanban.model.RecipePlan;
 
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
@@ -54,13 +55,14 @@ public abstract class KanbanRequest implements IMessage {
         buffer.writeInt(status == null ? -1 : status.ordinal());
         buffer.writeBoolean(item != null);
         if (item != null) {
-            writeText(buffer, item.getRegistryName());
-            buffer.writeInt(item.getMetadata());
+            PacketData.writeMaterial(buffer, item);
         }
+        writeExtra(buffer);
     }
 
     @Override
     public final void fromBytes(ByteBuf buffer) {
+        if (buffer.readableBytes() >= 30000) throw new IllegalArgumentException("Request is too large.");
         firstText = readText(buffer, MAX_STRING_BYTES);
         secondText = readText(buffer, MAX_STRING_BYTES);
         projectId = readUuid(buffer);
@@ -72,7 +74,20 @@ public abstract class KanbanRequest implements IMessage {
         int statusOrdinal = buffer.readInt();
         status = statusOrdinal >= 0 && statusOrdinal < CardStatus.values().length ? CardStatus.values()[statusOrdinal]
             : null;
-        item = buffer.readBoolean() ? new ItemKey(readText(buffer, 512), buffer.readInt()) : null;
+        item = buffer.readBoolean() ? PacketData.readMaterial(buffer) : null;
+        readExtra(buffer);
+    }
+
+    protected void writeExtra(ByteBuf buffer) {}
+
+    protected void readExtra(ByteBuf buffer) {}
+
+    public RecipePlan getRecipePlan() {
+        return null;
+    }
+
+    public long getExpectedRevision() {
+        return 0;
     }
 
     public abstract RequestType getType();

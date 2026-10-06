@@ -7,10 +7,18 @@ public final class ItemKey {
 
     private final String registryName;
     private final int metadata;
+    private final boolean fluid;
+    private final String nbt;
 
     public ItemKey(String registryName, int metadata) {
+        this(registryName, metadata, false, "");
+    }
+
+    public ItemKey(String registryName, int metadata, boolean fluid, String nbt) {
         this.registryName = Objects.requireNonNull(registryName, "registryName");
         this.metadata = metadata;
+        this.fluid = fluid;
+        this.nbt = nbt == null ? "" : nbt;
     }
 
     public String getRegistryName() {
@@ -19,6 +27,14 @@ public final class ItemKey {
 
     public int getMetadata() {
         return metadata;
+    }
+
+    public boolean isFluid() {
+        return fluid;
+    }
+
+    public String getNbt() {
+        return nbt;
     }
 
     @Override
@@ -30,11 +46,13 @@ public final class ItemKey {
             return false;
         }
         ItemKey that = (ItemKey) other;
-        return metadata == that.metadata && registryName.equals(that.registryName);
+        return metadata == that.metadata && fluid == that.fluid
+            && registryName.equals(that.registryName)
+            && nbt.equals(that.nbt);
     }
 
     @Override
     public int hashCode() {
-        return 31 * registryName.hashCode() + metadata;
+        return Objects.hash(registryName, metadata, fluid, nbt);
     }
 }

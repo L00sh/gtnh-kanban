@@ -90,6 +90,13 @@ public final class KanbanNbtCodec {
             CARD_ID,
             card.getId()
                 .toString());
+        NBTTagList assigned = new NBTTagList();
+        for (UUID memberId : card.getAssigneeIds()) {
+            NBTTagCompound member = new NBTTagCompound();
+            member.setString("id", memberId.toString());
+            assigned.appendTag(member);
+        }
+        target.setTag("assignees", assigned);
         target.setString(CARD_TITLE, card.getTitle());
         target.setString(CARD_DESCRIPTION, card.getDescription());
         target.setString(
@@ -98,24 +105,8 @@ public final class KanbanNbtCodec {
                 .name());
 
         NBTTagList requirements = new NBTTagList();
-        for (ItemRequirement requirement : card.getRequirements()) {
-            NBTTagCompound encodedRequirement = new NBTTagCompound();
-            encodedRequirement.setString(
-                REQUIREMENT_ID,
-                requirement.getId()
-                    .toString());
-            encodedRequirement.setString(
-                ITEM_NAME,
-                requirement.getItem()
-                    .getRegistryName());
-            encodedRequirement.setInteger(
-                ITEM_METADATA,
-                requirement.getItem()
-                    .getMetadata());
-            encodedRequirement.setInteger(QUANTITY, requirement.getQuantity());
-            encodedRequirement.setBoolean(COMPLETE, requirement.isComplete());
-            requirements.appendTag(encodedRequirement);
-        }
+        for (ItemRequirement requirement : card.getRequirements())
+            requirements.appendTag(writeRequirement(requirement));
         target.setTag(REQUIREMENTS, requirements);
         return target;
     }
@@ -123,21 +114,79 @@ public final class KanbanNbtCodec {
     private static KanbanCard readCard(NBTTagCompound source) {
         List<ItemRequirement> requirements = new ArrayList<ItemRequirement>();
         NBTTagList encodedRequirements = source.getTagList(REQUIREMENTS, NBT_COMPOUND);
+        // Legacy versions did not cap flat roots. Preserve them so a later save cannot discard projects.
+        int[] remaining = { Math.max(4096, encodedRequirements.tagCount()) };
         for (int index = 0; index < encodedRequirements.tagCount(); index++) {
-            NBTTagCompound requirement = encodedRequirements.getCompoundTagAt(index);
-            requirements.add(
-                new ItemRequirement(
-                    readUuid(requirement, REQUIREMENT_ID),
-                    new ItemKey(requirement.getString(ITEM_NAME), requirement.getInteger(ITEM_METADATA)),
-                    requirement.getInteger(QUANTITY),
-                    requirement.getBoolean(COMPLETE)));
+            requirements.add(readRequirement(encodedRequirements.getCompoundTagAt(index), 1, remaining));
         }
-        return new KanbanCard(
+        KanbanCard card = new KanbanCard(
             readUuid(source, CARD_ID),
             source.getString(CARD_TITLE),
             source.getString(CARD_DESCRIPTION),
             readStatus(source.getString(CARD_STATUS)),
             requirements);
+        NBTTagList assigned = source.getTagList("assignees", NBT_COMPOUND);
+        for (int index = 0; index < assigned.tagCount(); index++)
+            card.setAssigned(readUuid(assigned.getCompoundTagAt(index), "id"), true);
+        return card;
+    }
+
+    private static NBTTagCompound writeRequirement(ItemRequirement requirement) {
+        NBTTagCompound tag = new NBTTagCompound();
+        tag.setString(
+            REQUIREMENT_ID,
+            requirement.getId()
+                .toString());
+        tag.setString(
+            ITEM_NAME,
+            requirement.getItem()
+                .getRegistryName());
+        tag.setInteger(
+            ITEM_METADATA,
+            requirement.getItem()
+                .getMetadata());
+        tag.setBoolean(
+            "fluid",
+            requirement.getItem()
+                .isFluid());
+        tag.setString(
+            "itemNbt",
+            requirement.getItem()
+                .getNbt());
+        tag.setInteger(QUANTITY, requirement.getQuantity());
+        tag.setBoolean(COMPLETE, requirement.isComplete());
+        tag.setInteger("perBatch", requirement.getAmountPerBatch());
+        tag.setBoolean("reusable", requirement.isReusable());
+        tag.setString("recipeName", requirement.getRecipeName());
+        tag.setInteger("recipeOutput", requirement.getRecipeOutput());
+        tag.setLong("revision", requirement.getRevision());
+        NBTTagList children = new NBTTagList();
+        for (ItemRequirement child : requirement.getChildren()) children.appendTag(writeRequirement(child));
+        tag.setTag("children", children);
+        return tag;
+    }
+
+    private static ItemRequirement readRequirement(NBTTagCompound tag, int depth, int[] remaining) {
+        if (depth > 16 || --remaining[0] < 0) throw new IllegalArgumentException("Saved material tree exceeds limits.");
+        List<ItemRequirement> children = new ArrayList<ItemRequirement>();
+        NBTTagList encoded = tag.getTagList("children", NBT_COMPOUND);
+        for (int index = 0; index < encoded.tagCount(); index++)
+            children.add(readRequirement(encoded.getCompoundTagAt(index), depth + 1, remaining));
+        return new ItemRequirement(
+            readUuid(tag, REQUIREMENT_ID),
+            new ItemKey(
+                tag.getString(ITEM_NAME),
+                tag.getInteger(ITEM_METADATA),
+                tag.getBoolean("fluid"),
+                tag.getString("itemNbt")),
+            tag.getInteger(QUANTITY),
+            tag.getBoolean(COMPLETE),
+            tag.getInteger("perBatch"),
+            tag.getBoolean("reusable"),
+            tag.getString("recipeName"),
+            tag.getInteger("recipeOutput"),
+            tag.getLong("revision"),
+            children);
     }
 
     private static CardStatus readStatus(String name) {

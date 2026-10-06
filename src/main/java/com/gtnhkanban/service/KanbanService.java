@@ -14,6 +14,8 @@ import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
 import com.gtnhkanban.model.KanbanProject;
+import com.gtnhkanban.model.RecipeIngredient;
+import com.gtnhkanban.model.RecipePlan;
 import com.gtnhkanban.storage.ProjectRepository;
 
 /** Validated project operations shared by the Forge adapter and future external adapters. */
@@ -46,7 +48,14 @@ public final class KanbanService {
         if (!authorized.isSuccess()) {
             return failure(authorized);
         }
-        return OperationResult.success(boardSnapshot(authorized.getValue(), actorId));
+        KanbanProject project = authorized.getValue();
+        if (!BoardSizeBudget.fits(project, 0) || project.getCards()
+            .size() > 4096
+            || project.getMemberIds()
+                .size() >= 1024)
+            return boardTooLarge();
+        for (KanbanCard card : project.getCards()) if (card.requirementCount() > 4096) return boardTooLarge();
+        return OperationResult.success(boardSnapshot(project, actorId));
     }
 
     public OperationResult<ProjectSummary> createProject(UUID actorId, String name) {
@@ -82,6 +91,12 @@ public final class KanbanService {
         if (memberId == null) {
             return OperationResult.failure("UNKNOWN_USER", "That player is not known to this server.");
         }
+        if (!authorized.getValue()
+            .isOwnerOrMember(memberId)
+            && (authorized.getValue()
+                .getMemberIds()
+                .size() >= 1023 || !BoardSizeBudget.fits(authorized.getValue(), 150)))
+            return boardTooLarge();
         authorized.getValue()
             .addMember(memberId);
         projects.saveProject(authorized.getValue());
@@ -131,6 +146,10 @@ public final class KanbanService {
             validTitle.getValue(),
             validDescription.getValue(),
             CardStatus.TODO);
+        if (authorized.getValue()
+            .getCards()
+            .size() >= 4096 || !BoardSizeBudget.fits(authorized.getValue(), BoardSizeBudget.card(card)))
+            return boardTooLarge();
         authorized.getValue()
             .addCard(card);
         projects.saveProject(authorized.getValue());
@@ -162,6 +181,11 @@ public final class KanbanService {
         if (status == null) {
             return OperationResult.failure("INVALID_STATUS", "A card status is required.");
         }
+        long textGrowth = BoardSizeBudget.text(validTitle.getValue())
+            + BoardSizeBudget.text(validDescription.getValue())
+            - BoardSizeBudget.text(card.getTitle())
+            - BoardSizeBudget.text(card.getDescription());
+        if (textGrowth > 0 && !BoardSizeBudget.fits(authorized.getValue(), textGrowth)) return boardTooLarge();
         card.setTitle(validTitle.getValue());
         card.setDescription(validDescription.getValue());
         card.setStatus(status);
@@ -205,7 +229,11 @@ public final class KanbanService {
         if (!validQuantity.isValid()) {
             return invalid(validQuantity);
         }
-        if (item == null || !items.isRegistered(item)) {
+        if (item == null || item.getRegistryName()
+            .length() > 256
+            || item.getNbt()
+                .length() > 4096
+            || !items.isRegistered(item)) {
             return OperationResult.failure("UNKNOWN_ITEM", "That item is not registered on this server.");
         }
         ItemRequirement requirement = new ItemRequirement(
@@ -214,6 +242,10 @@ public final class KanbanService {
             validQuantity.getValue()
                 .intValue(),
             false);
+        if (card.requirementCount() >= 4096)
+            return OperationResult.failure("TOO_MANY_REQUIREMENTS", "This card has too many materials.");
+        if (!BoardSizeBudget.fits(authorized.getValue(), BoardSizeBudget.requirement(requirement)))
+            return boardTooLarge();
         card.addRequirement(requirement);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(requirementView(requirement));
@@ -234,6 +266,7 @@ public final class KanbanService {
             return OperationResult.failure("REQUIREMENT_NOT_FOUND", "That checklist entry does not exist.");
         }
         requirement.setComplete(complete);
+        touchAncestors(card, requirementId);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(requirementView(requirement));
     }
@@ -250,9 +283,15 @@ public final class KanbanService {
         }
         ValidationResult<Integer> validQuantity = BoardValidator.validateQuantity(quantity);
         if (!validQuantity.isValid()) return invalid(validQuantity);
-        requirement.setQuantity(
-            validQuantity.getValue()
-                .intValue());
+        if (!card.isRootRequirement(requirementId))
+            return OperationResult.failure("DERIVED_QUANTITY", "Edit the parent quantity to change recipe materials.");
+        try {
+            requirement.setQuantity(
+                validQuantity.getValue()
+                    .intValue());
+        } catch (IllegalArgumentException exception) {
+            return OperationResult.failure("INVALID_QUANTITY", exception.getMessage());
+        }
         projects.saveProject(authorized.getValue());
         return OperationResult.success(requirementView(requirement));
     }
@@ -267,6 +306,95 @@ public final class KanbanService {
         }
         projects.saveProject(authorized.getValue());
         return OperationResult.success(null);
+    }
+
+    public OperationResult<CardView> setCardAssigned(UUID actorId, UUID projectId, UUID cardId, UUID memberId,
+        boolean assigned) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanProject project = authorized.getValue();
+        KanbanCard card = findCard(project, cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (memberId == null || !project.isOwnerOrMember(memberId))
+            return OperationResult.failure("MEMBER_NOT_FOUND", "Assign only current project members.");
+        if (assigned && !card.getAssigneeIds()
+            .contains(memberId) && !BoardSizeBudget.fits(project, 17)) return boardTooLarge();
+        card.setAssigned(memberId, assigned);
+        projects.saveProject(project);
+        return OperationResult.success(cardView(card));
+    }
+
+    public OperationResult<RequirementView> expandRequirement(UUID actorId, UUID projectId, UUID cardId, UUID entryId,
+        int expectedQuantity, long expectedRevision, RecipePlan plan) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        ItemRequirement parent = card.findRequirement(entryId);
+        if (parent == null)
+            return OperationResult.failure("REQUIREMENT_NOT_FOUND", "That checklist entry does not exist.");
+        if (parent.getQuantity() != expectedQuantity || parent.getRevision() != expectedRevision) {
+            return OperationResult.failure("STALE_RECIPE", "This material changed. Reopen its recipe preview.");
+        }
+        if (plan == null) {
+            parent.clearExpansion();
+        } else {
+            List<ItemRequirement> path = card.requirementPath(entryId);
+            if (path.size() >= 16 || card.requirementCount() - parent.nodeCount()
+                + 1
+                + plan.getIngredients()
+                    .size()
+                > 4096) {
+                return OperationResult.failure("TREE_LIMIT", "The material tree is too large or too deep.");
+            }
+            if (plan.getName()
+                .length() > 128) return OperationResult.failure("INVALID_RECIPE", "Recipe label is too long.");
+            for (RecipeIngredient ingredient : plan.getIngredients()) {
+                ItemKey material = ingredient.getMaterial();
+                if (material.getRegistryName()
+                    .length() > 256
+                    || material.getNbt()
+                        .length() > 4096
+                    || !items.isRegistered(material)) {
+                    return OperationResult.failure("UNKNOWN_ITEM", "A recipe material is unavailable on this server.");
+                }
+                for (ItemRequirement ancestor : path) {
+                    if (ancestor.getItem()
+                        .equals(material))
+                        return OperationResult.failure(
+                            "RECIPE_LOOP",
+                            "This recipe leads back to a parent material. Choose another recipe.");
+                }
+            }
+            try {
+                ItemRequirement preview = new ItemRequirement(
+                    parent.getId(),
+                    parent.getItem(),
+                    parent.getQuantity(),
+                    parent.isComplete());
+                preview.expand(plan);
+                long growth = BoardSizeBudget.requirement(preview) - BoardSizeBudget.requirement(parent);
+                if (growth > 0 && !BoardSizeBudget.fits(authorized.getValue(), growth)) return boardTooLarge();
+                parent.expand(plan);
+            } catch (IllegalArgumentException exception) {
+                return OperationResult.failure("INVALID_RECIPE", exception.getMessage());
+            }
+        }
+        touchAncestors(card, entryId);
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(requirementView(parent));
+    }
+
+    private <T> OperationResult<T> boardTooLarge() {
+        return OperationResult.failure(
+            "BOARD_TOO_LARGE",
+            "This board is too large to synchronize. Remove unused cards or material branches.");
+    }
+
+    private void touchAncestors(KanbanCard card, UUID entryId) {
+        List<ItemRequirement> path = card.requirementPath(entryId);
+        for (int i = 0; i + 1 < path.size(); i++) path.get(i)
+            .touch();
     }
 
     private boolean hasCardTitle(KanbanProject project, String title, UUID excludedCardId) {
@@ -334,15 +462,29 @@ public final class KanbanService {
         for (ItemRequirement requirement : card.getRequirements()) {
             requirements.add(requirementView(requirement));
         }
-        return new CardView(card.getId(), card.getTitle(), card.getDescription(), card.getStatus(), requirements);
+        return new CardView(
+            card.getId(),
+            card.getTitle(),
+            card.getDescription(),
+            card.getStatus(),
+            requirements,
+            card.getAssigneeIds());
     }
 
     private RequirementView requirementView(ItemRequirement requirement) {
+        List<RequirementView> children = new ArrayList<RequirementView>();
+        for (ItemRequirement child : requirement.getChildren()) children.add(requirementView(child));
         return new RequirementView(
             requirement.getId(),
             requirement.getItem(),
             requirement.getQuantity(),
-            requirement.isComplete());
+            requirement.isComplete(),
+            requirement.getAmountPerBatch(),
+            requirement.isReusable(),
+            requirement.getRecipeName(),
+            requirement.getRecipeOutput(),
+            requirement.getRevision(),
+            children);
     }
 
     private String normalizeUsername(String username) {

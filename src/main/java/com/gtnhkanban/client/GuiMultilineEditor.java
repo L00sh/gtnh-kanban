@@ -8,7 +8,7 @@ import org.lwjgl.input.Keyboard;
 /** A single multiline text area with one caret and a bounded text buffer. */
 final class GuiMultilineEditor {
 
-    private static final int LINE_COUNT = 4;
+    private final int lineCount;
     private static final int LINE_HEIGHT = 18;
     private static final int MAX_LENGTH = 512;
     private static final int PADDING = 5;
@@ -23,6 +23,11 @@ final class GuiMultilineEditor {
     private boolean focused;
 
     GuiMultilineEditor(FontRenderer font, int x, int y, int width) {
+        this(font, x, y, width, 4);
+    }
+
+    GuiMultilineEditor(FontRenderer font, int x, int y, int width, int lineCount) {
+        this.lineCount = Math.max(1, lineCount);
         this.font = font;
         this.x = x;
         this.y = y;
@@ -43,7 +48,7 @@ final class GuiMultilineEditor {
     void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         focused = mouseButton == 0 && mouseX >= x && mouseX <= x + width && mouseY >= y && mouseY <= y + boxHeight();
         if (!focused) return;
-        int lineNumber = firstVisibleLine + Math.max(0, Math.min(LINE_COUNT - 1, (mouseY - y - 3) / LINE_HEIGHT));
+        int lineNumber = firstVisibleLine + Math.max(0, Math.min(lineCount - 1, (mouseY - y - 3) / LINE_HEIGHT));
         int lineStart = lineStart(lineNumber);
         int lineEnd = lineEnd(lineStart);
         int targetWidth = Math.max(0, mouseX - x - PADDING);
@@ -102,7 +107,7 @@ final class GuiMultilineEditor {
         Gui.drawRect(x, y, x + width, y + boxHeight(), 0xFF000000);
         int cursorLine = lineAt(cursor);
         int cursorColumn = cursor - lineStart(cursorLine);
-        for (int visible = 0; visible < LINE_COUNT; visible++) {
+        for (int visible = 0; visible < lineCount; visible++) {
             int lineNumber = firstVisibleLine + visible;
             int start = lineStart(lineNumber);
             int end = lineEnd(start);
@@ -161,10 +166,10 @@ final class GuiMultilineEditor {
     private void keepCursorVisible() {
         int cursorLine = lineAt(cursor);
         if (cursorLine < firstVisibleLine) firstVisibleLine = cursorLine;
-        if (cursorLine >= firstVisibleLine + LINE_COUNT) firstVisibleLine = cursorLine - LINE_COUNT + 1;
+        if (cursorLine >= firstVisibleLine + lineCount) firstVisibleLine = cursorLine - lineCount + 1;
     }
 
     private int boxHeight() {
-        return LINE_COUNT * LINE_HEIGHT + 4;
+        return lineCount * LINE_HEIGHT + 4;
     }
 }

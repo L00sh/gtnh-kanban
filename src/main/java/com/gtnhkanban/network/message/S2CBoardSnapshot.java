@@ -1,7 +1,10 @@
 package com.gtnhkanban.network.message;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.CardView;
@@ -9,7 +12,6 @@ import com.gtnhkanban.api.MemberSummary;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
 import com.gtnhkanban.model.CardStatus;
-import com.gtnhkanban.model.ItemKey;
 
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
@@ -51,20 +53,13 @@ public final class S2CBoardSnapshot implements IMessage {
             PacketData.writeString(buffer, card.getDescription());
             PacketData.writeStatus(buffer, card.getStatus());
             buffer.writeInt(
+                card.getAssigneeIds()
+                    .size());
+            for (UUID id : card.getAssigneeIds()) PacketData.writeUuid(buffer, id);
+            buffer.writeInt(
                 card.getRequirements()
                     .size());
-            for (RequirementView requirement : card.getRequirements()) {
-                PacketData.writeUuid(buffer, requirement.getId());
-                PacketData.writeString(
-                    buffer,
-                    requirement.getItem()
-                        .getRegistryName());
-                buffer.writeInt(
-                    requirement.getItem()
-                        .getMetadata());
-                buffer.writeInt(requirement.getQuantity());
-                buffer.writeBoolean(requirement.isComplete());
-            }
+            for (RequirementView requirement : card.getRequirements()) RequirementWireCodec.write(buffer, requirement);
         }
     }
 
@@ -90,17 +85,17 @@ public final class S2CBoardSnapshot implements IMessage {
             String title = PacketData.readString(buffer, 256);
             String description = PacketData.readString(buffer, 2048);
             CardStatus status = PacketData.readStatus(buffer);
+            int assignedCount = readCount(buffer, 1024);
+            Set<UUID> assignees = new LinkedHashSet<UUID>();
+            for (int assignedIndex = 0; assignedIndex < assignedCount; assignedIndex++)
+                assignees.add(PacketData.readUuid(buffer));
             int requirementCount = readCount(buffer, 4096);
+            int[] remaining = { 4096 };
             List<RequirementView> requirements = new ArrayList<RequirementView>(requirementCount);
             for (int requirementIndex = 0; requirementIndex < requirementCount; requirementIndex++) {
-                requirements.add(
-                    new RequirementView(
-                        PacketData.readUuid(buffer),
-                        new ItemKey(PacketData.readString(buffer, 512), buffer.readInt()),
-                        buffer.readInt(),
-                        buffer.readBoolean()));
+                requirements.add(RequirementWireCodec.read(buffer, 1, remaining));
             }
-            cards.add(new CardView(id, title, description, status, requirements));
+            cards.add(new CardView(id, title, description, status, requirements, assignees));
         }
         snapshot = new BoardSnapshot(project, members, cards);
     }

@@ -54,7 +54,9 @@ public final class KanbanProject {
     }
 
     public boolean removeMember(UUID memberId) {
-        return memberIds.remove(memberId);
+        boolean removed = memberIds.remove(memberId);
+        if (removed) for (KanbanCard card : cards) card.setAssigned(memberId, false);
+        return removed;
     }
 
     public boolean isOwnerOrMember(UUID playerId) {

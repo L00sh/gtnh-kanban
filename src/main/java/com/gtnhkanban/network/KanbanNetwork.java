@@ -6,11 +6,13 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.item.Item;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.World;
+import net.minecraftforge.fluids.FluidRegistry;
 
 import com.gtnhkanban.KanbanMod;
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.model.ItemKey;
+import com.gtnhkanban.model.MaterialNbt;
 import com.gtnhkanban.network.message.C2SAddMember;
 import com.gtnhkanban.network.message.C2SAddRequirement;
 import com.gtnhkanban.network.message.C2SCreateCard;
@@ -18,10 +20,12 @@ import com.gtnhkanban.network.message.C2SCreateProject;
 import com.gtnhkanban.network.message.C2SDeleteCard;
 import com.gtnhkanban.network.message.C2SDeleteProject;
 import com.gtnhkanban.network.message.C2SDeleteRequirement;
+import com.gtnhkanban.network.message.C2SExpandRequirement;
 import com.gtnhkanban.network.message.C2SFetchBoard;
 import com.gtnhkanban.network.message.C2SListProjects;
 import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
+import com.gtnhkanban.network.message.C2SSetCardAssigned;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
 import com.gtnhkanban.network.message.C2SUpdateCard;
@@ -68,6 +72,8 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new MoveCardHandler(), C2SMoveCard.class, 15, Side.SERVER);
         CHANNEL.registerMessage(new DeleteRequirementHandler(), C2SDeleteRequirement.class, 16, Side.SERVER);
         CHANNEL.registerMessage(new SetRequirementQuantityHandler(), C2SSetRequirementQuantity.class, 17, Side.SERVER);
+        CHANNEL.registerMessage(new SetCardAssignedHandler(), C2SSetCardAssigned.class, 18, Side.SERVER);
+        CHANNEL.registerMessage(new ExpandRequirementHandler(), C2SExpandRequirement.class, 19, Side.SERVER);
     }
 
     public static void registerClientMessages() {
@@ -120,7 +126,13 @@ public final class KanbanNetwork {
 
             @Override
             public boolean isRegistered(ItemKey item) {
-                return Item.itemRegistry.getObject(item.getRegistryName()) != null;
+                try {
+                    MaterialNbt.decode(item.getNbt());
+                } catch (IllegalArgumentException exception) {
+                    return false;
+                }
+                return item.isFluid() ? FluidRegistry.getFluid(item.getRegistryName()) != null
+                    : Item.itemRegistry.getObject(item.getRegistryName()) != null;
             }
         });
     }
@@ -218,6 +230,24 @@ public final class KanbanNetwork {
                         request.getEntryId(),
                         request.isComplete());
                     break;
+                case SET_CARD_ASSIGNED:
+                    result = service.setCardAssigned(
+                        actorId,
+                        projectId,
+                        request.getCardId(),
+                        request.getMemberId(),
+                        request.isComplete());
+                    break;
+                case EXPAND_REQUIREMENT:
+                    result = service.expandRequirement(
+                        actorId,
+                        projectId,
+                        request.getCardId(),
+                        request.getEntryId(),
+                        request.getQuantity(),
+                        request.getExpectedRevision(),
+                        request.getRecipePlan());
+                    break;
                 case SET_REQUIREMENT_QUANTITY:
                     result = service.setRequirementQuantity(
                         actorId,
@@ -306,6 +336,12 @@ public final class KanbanNetwork {
     }
 
     private static final class MoveCardHandler extends ServerRequestHandler {
+    }
+
+    private static final class SetCardAssignedHandler extends ServerRequestHandler {
+    }
+
+    private static final class ExpandRequirementHandler extends ServerRequestHandler {
     }
 
     private static final class SetRequirementQuantityHandler extends ServerRequestHandler {

@@ -66,10 +66,10 @@ public final class KanbanClientControls {
         int x = 5;
         int y = 5;
         int panelWidth = 190;
-        int itemCount = card.getRequirements()
-            .size();
+        java.util.List<MaterialLeaves.Leaf> leaves = MaterialLeaves.of(card.getRequirements());
+        int itemCount = leaves.size();
         int lines = Math.min(itemCount, 5);
-        int panelHeight = 28 + lines * 12 + (itemCount > lines ? 12 : 0);
+        int panelHeight = 28 + lines * 22 + (itemCount > lines ? 12 : 0);
         Gui.drawRect(x, y, x + panelWidth, y + panelHeight, 0xAA111111);
         minecraft.fontRenderer.drawStringWithShadow(
             minecraft.fontRenderer.trimStringToWidth("Kanban: " + card.getTitle(), panelWidth - 10),
@@ -77,24 +77,37 @@ public final class KanbanClientControls {
             y + 5,
             0xFFFFFF);
         int drawn = 0;
-        for (RequirementView requirement : card.getRequirements()) {
+        for (MaterialLeaves.Leaf leaf : leaves) {
+            RequirementView requirement = leaf.requirement;
             if (drawn == lines) break;
-            int available = inventoryCount(minecraft, requirement);
-            int color = available >= requirement.getQuantity() ? 0x55FF55
-                : requirement.isComplete() ? 0xAAAAAA : 0xDDDDDD;
+            int available = requirement.getItem()
+                .isFluid() ? 0 : inventoryCount(minecraft, requirement);
+            int color = !requirement.getItem()
+                .isFluid() && available >= requirement.getQuantity() ? 0x55FF55
+                    : requirement.isComplete() ? 0xAAAAAA : 0xDDDDDD;
             String marker = requirement.isComplete() ? "[x] " : "[ ] ";
-            String quantity = " " + available + "/" + requirement.getQuantity();
+            String quantity = requirement.getItem()
+                .isFluid() ? " " + requirement.getQuantity() + " mB"
+                    : " " + available + "/" + requirement.getQuantity();
             int nameWidth = panelWidth - 14
                 - minecraft.fontRenderer.getStringWidth(marker)
                 - minecraft.fontRenderer.getStringWidth(quantity);
-            String label = marker + minecraft.fontRenderer.trimStringToWidth(itemName(requirement), nameWidth)
+            String label = marker
+                + minecraft.fontRenderer.trimStringToWidth(MaterialDisplay.name(requirement.getItem()), nameWidth)
                 + quantity;
-            minecraft.fontRenderer.drawStringWithShadow(label, x + 9, y + 18 + drawn * 12, color);
+            minecraft.fontRenderer.drawStringWithShadow(label, x + 9, y + 18 + drawn * 22, color);
+            String context = leaf.context.isEmpty() ? "" : "for " + leaf.context;
+            if (requirement.isReusable()) context = "Reusable" + (context.isEmpty() ? "" : "; " + context);
+            if (!context.isEmpty()) minecraft.fontRenderer.drawStringWithShadow(
+                minecraft.fontRenderer.trimStringToWidth(context, panelWidth - 18),
+                x + 9,
+                y + 28 + drawn * 22,
+                0x999999);
             drawn++;
         }
         if (itemCount > lines) {
             minecraft.fontRenderer
-                .drawStringWithShadow("+" + (itemCount - lines) + " more items", x + 9, y + 18 + lines * 12, 0xAAAAAA);
+                .drawStringWithShadow("+" + (itemCount - lines) + " more items", x + 9, y + 18 + lines * 22, 0xAAAAAA);
         }
     }
 
@@ -103,15 +116,12 @@ public final class KanbanClientControls {
             requirement.getItem()
                 .getRegistryName());
         if (!(registered instanceof Item) || minecraft.thePlayer == null) return 0;
-        Item requiredItem = (Item) registered;
-        int requiredMetadata = requirement.getItem()
-            .getMetadata();
         int count = 0;
         for (ItemStack stack : minecraft.thePlayer.inventory.mainInventory) {
-            if (matches(stack, requiredItem, requiredMetadata)) count += stack.stackSize;
+            if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
         }
         for (ItemStack stack : minecraft.thePlayer.inventory.armorInventory) {
-            if (matches(stack, requiredItem, requiredMetadata)) count += stack.stackSize;
+            if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
         }
         Container openContainer = minecraft.thePlayer.openContainer;
         if (minecraft.currentScreen instanceof GuiContainer && openContainer != null
@@ -121,27 +131,10 @@ public final class KanbanClientControls {
                 // Player slots are also present in chest containers and were counted above.
                 if (slot.inventory == minecraft.thePlayer.inventory) continue;
                 ItemStack stack = slot.getStack();
-                if (matches(stack, requiredItem, requiredMetadata)) count += stack.stackSize;
+                if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
             }
         }
         return count;
     }
 
-    private boolean matches(ItemStack stack, Item item, int metadata) {
-        return stack != null && stack.getItem() == item && stack.getItemDamage() == metadata;
-    }
-
-    private String itemName(RequirementView requirement) {
-        Object item = Item.itemRegistry.getObject(
-            requirement.getItem()
-                .getRegistryName());
-        if (!(item instanceof Item)) return requirement.getItem()
-            .getRegistryName();
-        ItemStack stack = new ItemStack(
-            (Item) item,
-            1,
-            requirement.getItem()
-                .getMetadata());
-        return stack.getDisplayName();
-    }
 }

@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 import com.gtnhkanban.model.CardStatus;
+import com.gtnhkanban.model.ItemKey;
 
 import io.netty.buffer.ByteBuf;
 
@@ -37,6 +38,23 @@ final class PacketData {
 
     static UUID readUuid(ByteBuf buffer) {
         return buffer.readBoolean() ? new UUID(buffer.readLong(), buffer.readLong()) : null;
+    }
+
+    static void writeMaterial(ByteBuf buffer, ItemKey material) {
+        writeString(buffer, material.getRegistryName());
+        buffer.writeInt(material.getMetadata());
+        buffer.writeBoolean(material.isFluid());
+        writeString(buffer, material.getNbt());
+    }
+
+    static ItemKey readMaterial(ByteBuf buffer) {
+        return new ItemKey(readString(buffer, 1024), buffer.readInt(), buffer.readBoolean(), readString(buffer, 16384));
+    }
+
+    static int readCount(ByteBuf buffer, int maximum) {
+        int count = buffer.readInt();
+        if (count < 0 || count > maximum) throw new IllegalArgumentException("Invalid collection count: " + count);
+        return count;
     }
 
     static void writeStatus(ByteBuf buffer, CardStatus status) {

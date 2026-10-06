@@ -154,11 +154,15 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                         .getId());
                 drawRect(x + 3, 58 + row * 28, x + 97, 82 + row * 28, selectedForDrag ? 0x66444444 : 0xAA333333);
                 drawCenteredString(fontRendererObj, title, x + 50, 66 + row * 28, 0xFFFFFF);
+                CardView rowCard = visible.get(row);
+                String subtitle = rowCard.getAssigneeIds()
+                    .isEmpty()
+                        ? "requirements: " + rowCard.getRequirements()
+                            .size()
+                        : KanbanClientState.assigneeNames(rowCard);
                 drawCenteredString(
                     fontRendererObj,
-                    "requirements: " + visible.get(row)
-                        .getRequirements()
-                        .size(),
+                    fontRendererObj.trimStringToWidth(subtitle, 88),
                     x + 50,
                     77 + row * 28,
                     0xAAAAAA);

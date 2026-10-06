@@ -11,7 +11,6 @@ import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
-import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.message.C2SAddRequirement;
 
@@ -98,7 +97,7 @@ public final class GuiItemPicker extends GuiKanbanScreen {
         drawCenteredString(fontRendererObj, "Select an NEI item (items are not consumed)", width / 2, 18, 0xFFFFFF);
         drawString(fontRendererObj, "Search", width / 2 - 145, 39, 0xAAAAAA);
         searchField.drawTextBox();
-        drawString(fontRendererObj, "Quantity", width / 2 - 90, height - 53, 0xAAAAAA);
+        drawString(fontRendererObj, "Quantity (fluids: mB)", width / 2 - 155, height - 53, 0xAAAAAA);
         quantityField.drawTextBox();
         List<ItemStack> visible = PagedList.pageItems(filteredItems, page, PAGE_SIZE);
         for (int index = 0; index < visible.size(); index++) {
@@ -132,16 +131,14 @@ public final class GuiItemPicker extends GuiKanbanScreen {
             int quantity = Integer.parseInt(quantityField.getText());
             Object registryName = Item.itemRegistry.getNameForObject(selected.getItem());
             if (quantity > 0 && registryName != null) {
-                KanbanNetwork.CHANNEL.sendToServer(
-                    new C2SAddRequirement(
-                        projectId,
-                        cardId,
-                        new ItemKey(registryName.toString(), selected.getItemDamage()),
-                        quantity));
+                KanbanNetwork.CHANNEL
+                    .sendToServer(new C2SAddRequirement(projectId, cardId, MaterialDisplay.key(selected), quantity));
                 goBack();
             }
         } catch (NumberFormatException ignored) {
             KanbanClientState.setResult(false, "INVALID_QUANTITY", "Quantity must be a positive whole number.");
+        } catch (IllegalArgumentException exception) {
+            KanbanClientState.setResult(false, "UNSUPPORTED_ITEM", exception.getMessage());
         }
     }
 

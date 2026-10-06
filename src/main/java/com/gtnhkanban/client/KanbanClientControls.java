@@ -14,7 +14,7 @@ import net.minecraftforge.common.MinecraftForge;
 import org.lwjgl.input.Keyboard;
 
 import com.gtnhkanban.api.CardView;
-import com.gtnhkanban.api.RequirementView;
+import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.message.C2SListProjects;
 
@@ -48,8 +48,10 @@ public final class KanbanClientControls {
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft.theWorld == null) {
             KanbanClientState.clearPinnedCard();
+            BreakdownJobs.clear();
             return;
         }
+        BreakdownJobs.tick();
         while (OPEN_BOARD.isPressed()) {
             if (minecraft.thePlayer != null && minecraft.currentScreen == null) {
                 KanbanNetwork.CHANNEL.sendToServer(new C2SListProjects());
@@ -66,62 +68,48 @@ public final class KanbanClientControls {
         int x = 5;
         int y = 5;
         int panelWidth = 190;
-        java.util.List<MaterialLeaves.Leaf> leaves = MaterialLeaves.of(card.getRequirements());
-        int itemCount = leaves.size();
-        int lines = Math.min(itemCount, 5);
-        int panelHeight = 28 + lines * 22 + (itemCount > lines ? 12 : 0);
+        java.util.List<MaterialTotals.Total> totals = MaterialTotals.of(card.getRequirements());
+        int itemCount = totals.size();
+        int lines = Math.min(itemCount, 8);
+        int panelHeight = 28 + lines * 12 + (itemCount > lines ? 12 : 0);
         Gui.drawRect(x, y, x + panelWidth, y + panelHeight, 0xAA111111);
         minecraft.fontRenderer.drawStringWithShadow(
             minecraft.fontRenderer.trimStringToWidth("Kanban: " + card.getTitle(), panelWidth - 10),
             x + 5,
             y + 5,
             0xFFFFFF);
+        if (itemCount == 0) minecraft.fontRenderer.drawStringWithShadow("All materials done", x + 9, y + 18, 0x55FF55);
         int drawn = 0;
-        for (MaterialLeaves.Leaf leaf : leaves) {
-            RequirementView requirement = leaf.requirement;
+        for (MaterialTotals.Total total : totals) {
             if (drawn == lines) break;
-            int available = requirement.getItem()
-                .isFluid() ? 0 : inventoryCount(minecraft, requirement);
-            int color = !requirement.getItem()
-                .isFluid() && available >= requirement.getQuantity() ? 0x55FF55
-                    : requirement.isComplete() ? 0xAAAAAA : 0xDDDDDD;
-            String marker = requirement.isComplete() ? "[x] " : "[ ] ";
-            String quantity = requirement.getItem()
-                .isFluid() ? " " + requirement.getQuantity() + " mB"
-                    : " " + available + "/" + requirement.getQuantity();
-            int nameWidth = panelWidth - 14
-                - minecraft.fontRenderer.getStringWidth(marker)
-                - minecraft.fontRenderer.getStringWidth(quantity);
-            String label = marker
-                + minecraft.fontRenderer.trimStringToWidth(MaterialDisplay.name(requirement.getItem()), nameWidth)
+            boolean fluid = total.material.isFluid();
+            long available = fluid ? 0 : inventoryCount(minecraft, total.material);
+            int color = !fluid && available >= total.amount ? 0x55FF55 : 0xDDDDDD;
+            String quantity = fluid ? " " + total.amount + " mB" : " " + available + "/" + total.amount;
+            int nameWidth = panelWidth - 14 - minecraft.fontRenderer.getStringWidth(quantity);
+            String label = minecraft.fontRenderer.trimStringToWidth(MaterialDisplay.name(total.material), nameWidth)
                 + quantity;
-            minecraft.fontRenderer.drawStringWithShadow(label, x + 9, y + 18 + drawn * 22, color);
-            String context = leaf.context.isEmpty() ? "" : "for " + leaf.context;
-            if (requirement.isReusable()) context = "Reusable" + (context.isEmpty() ? "" : "; " + context);
-            if (!context.isEmpty()) minecraft.fontRenderer.drawStringWithShadow(
-                minecraft.fontRenderer.trimStringToWidth(context, panelWidth - 18),
-                x + 9,
-                y + 28 + drawn * 22,
-                0x999999);
+            minecraft.fontRenderer.drawStringWithShadow(label, x + 9, y + 18 + drawn * 12, color);
             drawn++;
         }
         if (itemCount > lines) {
-            minecraft.fontRenderer
-                .drawStringWithShadow("+" + (itemCount - lines) + " more items", x + 9, y + 18 + lines * 22, 0xAAAAAA);
+            minecraft.fontRenderer.drawStringWithShadow(
+                "+" + (itemCount - lines) + " more materials",
+                x + 9,
+                y + 18 + lines * 12,
+                0xAAAAAA);
         }
     }
 
-    private int inventoryCount(Minecraft minecraft, RequirementView requirement) {
-        Object registered = Item.itemRegistry.getObject(
-            requirement.getItem()
-                .getRegistryName());
+    static int inventoryCount(Minecraft minecraft, ItemKey material) {
+        Object registered = Item.itemRegistry.getObject(material.getRegistryName());
         if (!(registered instanceof Item) || minecraft.thePlayer == null) return 0;
         int count = 0;
         for (ItemStack stack : minecraft.thePlayer.inventory.mainInventory) {
-            if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
+            if (MaterialDisplay.matches(stack, material)) count += stack.stackSize;
         }
         for (ItemStack stack : minecraft.thePlayer.inventory.armorInventory) {
-            if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
+            if (MaterialDisplay.matches(stack, material)) count += stack.stackSize;
         }
         Container openContainer = minecraft.thePlayer.openContainer;
         if (minecraft.currentScreen instanceof GuiContainer && openContainer != null
@@ -131,7 +119,7 @@ public final class KanbanClientControls {
                 // Player slots are also present in chest containers and were counted above.
                 if (slot.inventory == minecraft.thePlayer.inventory) continue;
                 ItemStack stack = slot.getStack();
-                if (MaterialDisplay.matches(stack, requirement.getItem())) count += stack.stackSize;
+                if (MaterialDisplay.matches(stack, material)) count += stack.stackSize;
             }
         }
         return count;

@@ -3,17 +3,24 @@ package com.gtnhkanban.client;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import net.minecraft.item.ItemStack;
+import net.minecraftforge.oredict.OreDictionary;
 
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.RecipeIngredient;
 import com.gtnhkanban.model.RecipePlan;
+import com.gtnhkanban.planner.RecipeCandidate;
 
 import codechicken.nei.PositionedStack;
+import codechicken.nei.recipe.FurnaceRecipeHandler;
 import codechicken.nei.recipe.GuiCraftingRecipe;
 import codechicken.nei.recipe.ICraftingHandler;
+import codechicken.nei.recipe.ShapedRecipeHandler;
+import codechicken.nei.recipe.ShapelessRecipeHandler;
+import codechicken.nei.recipe.TemplateRecipeHandler;
 
 /** Extracts concrete planning inputs from NEI, including GT fluid display stacks. */
 final class NeiRecipeCatalog {
@@ -29,12 +36,28 @@ final class NeiRecipeCatalog {
         final int output;
         final List<Input> inputs;
         final String error;
+        final RecipeCandidate.Kind kind;
+        final long euPerTick;
 
         Choice(String name, int output, List<Input> inputs, String error) {
+            this(name, output, inputs, error, RecipeCandidate.Kind.OTHER, -1);
+        }
+
+        Choice(String name, int output, List<Input> inputs, String error, RecipeCandidate.Kind kind, long euPerTick) {
             this.name = name;
             this.output = output;
             this.inputs = inputs;
             this.error = error;
+            this.kind = kind;
+            this.euPerTick = euPerTick;
+        }
+
+        /** The planner's view of this recipe, or null when it cannot be used for a breakdown. */
+        RecipeCandidate candidate() {
+            if (!error.isEmpty() || inputs.isEmpty()) return null;
+            List<List<RecipeIngredient>> slots = new ArrayList<List<RecipeIngredient>>();
+            for (Input input : inputs) slots.add(input.alternatives);
+            return new RecipeCandidate(name, kind, euPerTick, output, slots);
         }
 
         RecipePlan plan(int[] selection) {
@@ -60,6 +83,11 @@ final class NeiRecipeCatalog {
         }
     }
 
+    private static final String[] GREGTECH_PACKAGES = { "gregtech.", "gtPlusPlus.", "bartworks.", "tectech.", "ggfab.",
+        "kubatech.", "goodgenerator.", "gtnhintergalactic." };
+    private static final String[] EXCLUDED_HANDLERS = { "disassembl", "recycl", "scanner", "replicat", "mass fab",
+        "amplifab", "uncraft" };
+
     private NeiRecipeCatalog() {}
 
     static List<Choice> find(ItemKey requested) {
@@ -67,10 +95,12 @@ final class NeiRecipeCatalog {
         ItemStack query = MaterialDisplay.stack(requested);
         if (query == null) return choices;
         for (ICraftingHandler handler : GuiCraftingRecipe.getCraftingHandlers("item", query)) {
+            RecipeCandidate.Kind kind = kind(handler);
             for (int recipe = 0; recipe < handler.numRecipes(); recipe++) {
                 try {
                     Output output = matchingOutput(handler, recipe, requested);
                     if (output == null) continue;
+                    if (isExcluded(handler) || isFakeGregTechRecipe(handler, recipe)) continue;
                     int amount = output.amount;
                     List<Input> inputs = new ArrayList<Input>();
                     String error = "";
@@ -81,7 +111,9 @@ final class NeiRecipeCatalog {
                         error = "This recipe does not expose usable ingredients.";
                     else for (PositionedStack slot : ingredients) {
                         Input input = new Input();
+                        String skipped = "";
                         slot.generatePermutations();
+                        if (isProgrammedCircuit(slot)) continue;
                         if (slot.items != null) for (ItemStack stack : slot.items) {
                             try {
                                 ItemKey key = MaterialDisplay.key(stack);
@@ -95,14 +127,23 @@ final class NeiRecipeCatalog {
                                 if (!duplicate) input.alternatives
                                     .add(new RecipeIngredient(key, Math.max(1, count), isReusable(slot, stack, count)));
                             } catch (IllegalArgumentException exception) {
-                                error = exception.getMessage();
+                                // Skip just this variant; the slot fails only if no variant is usable.
+                                skipped = exception.getMessage();
                             }
                         }
                         if (input.alternatives.isEmpty())
-                            error = "An ingredient has no supported concrete alternatives.";
+                            error = skipped.isEmpty() ? "An ingredient has no supported concrete alternatives."
+                                : skipped;
                         inputs.add(input);
                     }
-                    choices.add(new Choice(handler.getRecipeName(), Math.max(1, amount), inputs, error));
+                    choices.add(
+                        new Choice(
+                            handler.getRecipeName(),
+                            Math.max(1, amount),
+                            inputs,
+                            error,
+                            kind,
+                            euPerTick(handler, recipe)));
                 } catch (RuntimeException exception) {
                     choices.add(
                         new Choice(
@@ -115,6 +156,74 @@ final class NeiRecipeCatalog {
             }
         }
         return choices;
+    }
+
+    private static RecipeCandidate.Kind kind(ICraftingHandler handler) {
+        if (handler instanceof ShapedRecipeHandler || handler instanceof ShapelessRecipeHandler)
+            return RecipeCandidate.Kind.CRAFTING_TABLE;
+        if (handler instanceof FurnaceRecipeHandler) return RecipeCandidate.Kind.FURNACE;
+        String type = handler.getClass()
+            .getName();
+        for (String prefix : GREGTECH_PACKAGES) if (type.startsWith(prefix)) return RecipeCandidate.Kind.GT_MACHINE;
+        return RecipeCandidate.Kind.OTHER;
+    }
+
+    /** Handlers that take things apart or copy them rather than make them. */
+    private static boolean isExcluded(ICraftingHandler handler) {
+        String name = handler.getRecipeName()
+            .toLowerCase(Locale.ROOT);
+        for (String fragment : EXCLUDED_HANDLERS) if (name.contains(fragment)) return true;
+        return false;
+    }
+
+    /** GT's cached NEI recipe exposes the underlying recipe; fake recipes are display-only. */
+    private static Object gregTechRecipe(ICraftingHandler handler, int recipe) {
+        if (!(handler instanceof TemplateRecipeHandler)) return null;
+        try {
+            Object cached = ((TemplateRecipeHandler) handler).arecipes.get(recipe);
+            return cached.getClass()
+                .getField("mRecipe")
+                .get(cached);
+        } catch (ReflectiveOperationException | RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private static boolean isFakeGregTechRecipe(ICraftingHandler handler, int recipe) {
+        Object gtRecipe = gregTechRecipe(handler, recipe);
+        if (gtRecipe == null) return false;
+        try {
+            return gtRecipe.getClass()
+                .getField("mFakeRecipe")
+                .getBoolean(gtRecipe);
+        } catch (ReflectiveOperationException exception) {
+            return false;
+        }
+    }
+
+    private static long euPerTick(ICraftingHandler handler, int recipe) {
+        Object gtRecipe = gregTechRecipe(handler, recipe);
+        if (gtRecipe == null) return -1;
+        try {
+            return Math.abs(
+                gtRecipe.getClass()
+                    .getField("mEUt")
+                    .getInt(gtRecipe));
+        } catch (ReflectiveOperationException exception) {
+            return -1;
+        }
+    }
+
+    /** GT programmed circuits only select a machine mode; they are never part of the material cost. */
+    private static boolean isProgrammedCircuit(PositionedStack slot) {
+        if (slot.items == null || slot.items.length == 0) return false;
+        for (ItemStack stack : slot.items) if (stack == null || stack.getItem() == null
+            || !stack.getItem()
+                .getClass()
+                .getName()
+                .contains("IntegratedCircuit"))
+            return false;
+        return true;
     }
 
     private static final class Output {
@@ -162,16 +271,30 @@ final class NeiRecipeCatalog {
                 // Not a handler with exposed special-slot semantics.
             }
         }
-        String itemClass = stack.getItem()
-            .getClass()
-            .getName();
-        boolean tool = stack.isItemStackDamageable() || itemClass.contains("MetaGeneratedTool")
-            || itemClass.contains("MetaGenerated_Tool");
-        if (tool && stack.getItem()
+        if (isTool(stack)) return true;
+        if (stack.isItemStackDamageable() && stack.getItem()
             .hasContainerItem(stack)) {
             ItemStack returned = stack.getItem()
                 .getContainerItem(stack);
             return returned != null && returned.getItem() == stack.getItem();
+        }
+        return false;
+    }
+
+    /**
+     * GT crafting tools (hammer, file, wrench, saw...). NEI shows them without durability data, so they cannot be
+     * recognized by being returned after crafting; recognize them by type and ore dictionary name instead.
+     */
+    static boolean isTool(ItemStack stack) {
+        if (stack == null || stack.getItem() == null) return false;
+        for (Class<?> type = stack.getItem()
+            .getClass(); type != null; type = type.getSuperclass()) {
+            if (type.getName()
+                .equals("gregtech.api.items.MetaGeneratedTool")) return true;
+        }
+        for (int id : OreDictionary.getOreIDs(stack)) {
+            if (OreDictionary.getOreName(id)
+                .startsWith("craftingTool")) return true;
         }
         return false;
     }

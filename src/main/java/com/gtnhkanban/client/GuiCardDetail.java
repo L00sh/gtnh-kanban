@@ -18,7 +18,8 @@ import com.gtnhkanban.network.message.C2SUpdateCard;
 
 public final class GuiCardDetail extends GuiKanbanScreen {
 
-    private static final int SAVE = 1, BACK = 2, STATUS = 3, ADD_REQUIREMENT = 4, PIN = 5, DELETE = 6, ASSIGNEES = 7;
+    private static final int SAVE = 1, BACK = 2, STATUS = 3, ADD_REQUIREMENT = 4, PIN = 5, DELETE = 6, ASSIGNEES = 7,
+        STRATEGY = 8, REGENERATE = 9;
     private final UUID projectId, cardId;
     private final GuiScreen boardScreen;
     private GuiTextField titleField;
@@ -63,8 +64,17 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         if (cardId != null) {
             buttonList.add(new GuiButton(PIN, width / 2 - 100, height - 28, 95, 20, "Pin to HUD"));
             buttonList.add(new GuiButton(DELETE, width / 2 + 5, height - 28, 80, 20, "Delete card"));
+            buttonList.add(new GuiButton(REGENERATE, width / 2 + 90, height - 28, 110, 20, "Regenerate all"));
             buttonList.add(new GuiButton(ADD_REQUIREMENT, panelLeft, editorBottom + 20, 125, 20, "Add checklist item"));
             buttonList.add(new GuiButton(ASSIGNEES, panelLeft + 130, editorBottom + 20, 100, 20, "Assignees"));
+            buttonList.add(
+                new GuiButton(
+                    STRATEGY,
+                    panelLeft + 235,
+                    editorBottom + 20,
+                    Math.max(60, Math.min(200, panelWidth - 235)),
+                    20,
+                    strategyLabel()));
             checklist = new GuiChecklistPanel(
                 mc,
                 projectId,
@@ -90,6 +100,9 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         for (GuiButton button : buttonList) if (button.id == PIN) {
             button.enabled = card != null && card.getStatus() == CardStatus.IN_PROGRESS;
             button.displayString = KanbanClientState.isCardPinned(projectId, cardId) ? "Unpin HUD" : "Pin to HUD";
+        } else if (button.id == REGENERATE) {
+            button.enabled = card != null && !card.getRequirements()
+                .isEmpty() && !BreakdownJobs.isBusy(cardId);
         }
     }
 
@@ -123,6 +136,15 @@ public final class GuiCardDetail extends GuiKanbanScreen {
                     }));
         } else if (button.id == ADD_REQUIREMENT) mc.displayGuiScreen(new GuiItemPicker(projectId, cardId, this));
         else if (button.id == ASSIGNEES) mc.displayGuiScreen(new GuiCardAssignees(projectId, cardId, this));
+        else if (button.id == REGENERATE) {
+            BreakdownJobs.regenerateAll(projectId, cardId);
+            refreshPin();
+        } else if (button.id == STRATEGY) {
+            BreakdownJobs.setStrategy(
+                BreakdownJobs.getStrategy()
+                    .next());
+            button.displayString = strategyLabel();
+        }
     }
 
     @Override
@@ -182,8 +204,15 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             panelLeft,
             editorBottom + 8,
             0xAAAAAA);
+        String breakdown = BreakdownJobs.status();
         String result = KanbanClientState.getResultMessage();
-        if (!result.isEmpty()) drawCenteredString(
+        if (!breakdown.isEmpty()) drawCenteredString(
+            fontRendererObj,
+            fontRendererObj.trimStringToWidth(breakdown, width - 20),
+            width / 2,
+            height - 70,
+            0xFFCC66);
+        else if (!result.isEmpty()) drawCenteredString(
             fontRendererObj,
             fontRendererObj.trimStringToWidth(result, width - 20),
             width / 2,
@@ -194,6 +223,11 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             java.util.List<String> tooltip = checklist.tooltip(x, y);
             if (!tooltip.isEmpty()) drawHoveringText(tooltip, x, y, fontRendererObj);
         }
+    }
+
+    private static String strategyLabel() {
+        return "Breakdown: " + BreakdownJobs.getStrategy()
+            .getLabel();
     }
 
     private String statusLabel(CardStatus value) {

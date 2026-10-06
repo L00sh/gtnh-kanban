@@ -6,6 +6,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraftforge.fluids.Fluid;
 import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fluids.FluidStack;
+import net.minecraftforge.oredict.OreDictionary;
 
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.MaterialNbt;
@@ -75,6 +76,29 @@ final class MaterialDisplay {
         }
         ItemStack stack = stack(key);
         return stack == null ? key.getRegistryName() : stack.getDisplayName();
+    }
+
+    /**
+     * For a GT crafting tool, its kind ("Hard Hammer (any)"), since any material works; otherwise the item name.
+     */
+    static String toolName(ItemKey key) {
+        ItemStack stack = key.isFluid() ? null : stack(key);
+        if (stack != null) for (int id : OreDictionary.getOreIDs(stack)) {
+            String name = OreDictionary.getOreName(id);
+            if (name.startsWith("craftingTool") && name.length() > "craftingTool".length())
+                return splitWords(name.substring("craftingTool".length())) + " (any)";
+        }
+        return name(key);
+    }
+
+    static String splitWords(String camel) {
+        StringBuilder words = new StringBuilder();
+        for (int i = 0; i < camel.length(); i++) {
+            char c = camel.charAt(i);
+            if (i > 0 && Character.isUpperCase(c)) words.append(' ');
+            words.append(c);
+        }
+        return words.toString();
     }
 
     static boolean matches(ItemStack stack, ItemKey key) {

@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
+import com.gtnhkanban.client.BreakdownJobs;
 import com.gtnhkanban.client.GuiProjectList;
 import com.gtnhkanban.client.KanbanClientControls;
 import com.gtnhkanban.client.KanbanClientState;
@@ -55,6 +56,7 @@ public class ClientProxy extends CommonProxy {
                 @Override
                 public void run() {
                     KanbanClientState.setBoard(snapshot);
+                    BreakdownJobs.onBoard();
                 }
             });
     }
@@ -67,6 +69,7 @@ public class ClientProxy extends CommonProxy {
                 @Override
                 public void run() {
                     KanbanClientState.setResult(success, code, message);
+                    BreakdownJobs.onServerResult();
                 }
             });
     }

@@ -48,6 +48,7 @@ public class KanbanMod {
     @Mod.EventHandler
     public void serverStopped(FMLServerStoppedEvent event) {
         KanbanServerTaskQueue.clear();
+        KanbanNetwork.clearUploads();
         KanbanStorage.unload();
     }
 }

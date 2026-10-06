@@ -16,12 +16,16 @@ import com.gtnhkanban.model.KanbanCard;
 import com.gtnhkanban.model.KanbanProject;
 import com.gtnhkanban.model.RecipeIngredient;
 import com.gtnhkanban.model.RecipePlan;
+import com.gtnhkanban.model.RecipeTree;
 import com.gtnhkanban.storage.ProjectRepository;
 
 /** Validated project operations shared by the Forge adapter and future external adapters. */
 public final class KanbanService {
 
     private static final int MAX_USERNAME_LENGTH = 16;
+    /** Deepest checklist level; root rows are level 1. Matches the save and wire decoders. */
+    public static final int MAX_TREE_LEVEL = 16;
+    public static final int MAX_CARD_ROWS = 4096;
 
     private final ProjectRepository projects;
     private final ProfileResolver profiles;
@@ -383,6 +387,107 @@ public final class KanbanService {
         touchAncestors(card, entryId);
         projects.saveProject(authorized.getValue());
         return OperationResult.success(requirementView(parent));
+    }
+
+    /**
+     * Applies a full nested breakdown in one step. With a null {@code entryId} this adds {@code item} as a new
+     * checklist row with the breakdown beneath it (a null {@code tree} adds it unexpanded). Otherwise it replaces the
+     * material branch of an existing row, which must still have {@code quantity} and {@code expectedRevision}.
+     */
+    public OperationResult<RequirementView> applyBreakdown(UUID actorId, UUID projectId, UUID cardId, UUID entryId,
+        ItemKey item, int quantity, long expectedRevision, RecipeTree tree) {
+        if (entryId == null && tree == null) return addRequirement(actorId, projectId, cardId, item, quantity);
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanCard card = findCard(authorized.getValue(), cardId);
+        if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (tree == null) return OperationResult.failure("INVALID_RECIPE", "A breakdown is required.");
+
+        ItemRequirement target;
+        List<ItemKey> ancestors = new ArrayList<ItemKey>();
+        int existingRows;
+        if (entryId == null) {
+            ValidationResult<Integer> validQuantity = BoardValidator.validateQuantity(quantity);
+            if (!validQuantity.isValid()) return invalid(validQuantity);
+            if (!isAcceptableMaterial(item))
+                return OperationResult.failure("UNKNOWN_ITEM", "That item is not registered on this server.");
+            target = new ItemRequirement(UUID.randomUUID(), item, quantity, false);
+            existingRows = 0;
+        } else {
+            target = card.findRequirement(entryId);
+            if (target == null)
+                return OperationResult.failure("REQUIREMENT_NOT_FOUND", "That checklist entry does not exist.");
+            if (target.getQuantity() != quantity || target.getRevision() != expectedRevision) {
+                return OperationResult.failure("STALE_RECIPE", "This material changed. Try the breakdown again.");
+            }
+            for (ItemRequirement ancestor : card.requirementPath(entryId)) ancestors.add(ancestor.getItem());
+            ancestors.remove(ancestors.size() - 1);
+            existingRows = target.nodeCount();
+        }
+        ancestors.add(target.getItem());
+
+        if (ancestors.size() + tree.depth() > MAX_TREE_LEVEL
+            || card.requirementCount() - existingRows + 1 + tree.nodeCount() > MAX_CARD_ROWS) {
+            return OperationResult.failure("TREE_LIMIT", "The material tree is too large or too deep.");
+        }
+        OperationResult<Void> valid = validateTree(tree, ancestors);
+        if (!valid.isSuccess()) return failure(valid);
+
+        ItemRequirement preview = new ItemRequirement(
+            target.getId(),
+            target.getItem(),
+            target.getQuantity(),
+            target.isComplete());
+        try {
+            preview.expandTree(tree);
+        } catch (IllegalArgumentException exception) {
+            return OperationResult.failure("INVALID_RECIPE", exception.getMessage());
+        }
+        long growth = BoardSizeBudget.requirement(preview)
+            - (entryId == null ? 0 : BoardSizeBudget.requirement(target));
+        if (growth > 0 && !BoardSizeBudget.fits(authorized.getValue(), growth)) return boardTooLarge();
+
+        if (entryId == null) {
+            card.addRequirement(preview);
+            target = preview;
+        } else {
+            target.expandTree(tree);
+            touchAncestors(card, entryId);
+        }
+        projects.saveProject(authorized.getValue());
+        return OperationResult.success(requirementView(target));
+    }
+
+    private OperationResult<Void> validateTree(RecipeTree tree, List<ItemKey> ancestors) {
+        RecipePlan plan = tree.getPlan();
+        if (plan.getName()
+            .length() > 128) return OperationResult.failure("INVALID_RECIPE", "Recipe label is too long.");
+        for (int i = 0; i < plan.getIngredients()
+            .size(); i++) {
+            ItemKey material = plan.getIngredients()
+                .get(i)
+                .getMaterial();
+            if (!isAcceptableMaterial(material))
+                return OperationResult.failure("UNKNOWN_ITEM", "A recipe material is unavailable on this server.");
+            if (ancestors.contains(material)) return OperationResult
+                .failure("RECIPE_LOOP", "This recipe leads back to a parent material. Choose another recipe.");
+            RecipeTree child = tree.getChildren()
+                .get(i);
+            if (child == null) continue;
+            ancestors.add(material);
+            OperationResult<Void> valid = validateTree(child, ancestors);
+            ancestors.remove(ancestors.size() - 1);
+            if (!valid.isSuccess()) return valid;
+        }
+        return OperationResult.success(null);
+    }
+
+    private boolean isAcceptableMaterial(ItemKey material) {
+        return material != null && material.getRegistryName()
+            .length() <= 256
+            && material.getNbt()
+                .length() <= 4096
+            && items.isRegistered(material);
     }
 
     private <T> OperationResult<T> boardTooLarge() {

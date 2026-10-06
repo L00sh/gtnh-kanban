@@ -23,7 +23,8 @@ final class GuiRecipePicker extends GuiKanbanScreen {
     private int page;
     private int[] selection;
     private String error = "";
-    private static final int BACK = 1, PREVIOUS = 2, NEXT = 3, APPLY = 4, CLEAR = 5, PAGE_PREVIOUS = 6, PAGE_NEXT = 7;
+    private static final int BACK = 1, PREVIOUS = 2, NEXT = 3, APPLY = 4, CLEAR = 5, PAGE_PREVIOUS = 6, PAGE_NEXT = 7,
+        AUTO = 8;
 
     GuiRecipePicker(UUID projectId, UUID cardId, RequirementView requirement, GuiScreen parent) {
         super(parent);
@@ -54,13 +55,14 @@ final class GuiRecipePicker extends GuiKanbanScreen {
         }
         buttonList.clear();
         int left = width / 2 - 160;
-        buttonList.add(new GuiButton(BACK, left, height - 28, 60, 20, "Back"));
-        buttonList.add(new GuiButton(APPLY, left + 65, height - 28, 115, 20, "Use this recipe"));
-        buttonList.add(new GuiButton(CLEAR, left + 185, height - 28, 130, 20, "Remove expansion"));
+        buttonList.add(new GuiButton(BACK, left, height - 28, 45, 20, "Back"));
+        buttonList.add(new GuiButton(APPLY, left + 50, height - 28, 95, 20, "Use this recipe"));
+        buttonList.add(new GuiButton(CLEAR, left + 150, height - 28, 60, 20, "Remove"));
         buttonList.add(new GuiButton(PREVIOUS, left, 40, 30, 20, "<"));
         buttonList.add(new GuiButton(NEXT, left + 285, 40, 30, 20, ">"));
         buttonList.add(new GuiButton(PAGE_PREVIOUS, left + 100, height - 54, 30, 20, "<"));
         buttonList.add(new GuiButton(PAGE_NEXT, left + 190, height - 54, 30, 20, ">"));
+        buttonList.add(new GuiButton(AUTO, left + 215, height - 28, 100, 20, "Auto breakdown"));
         if (!recipes.isEmpty()) {
             NeiRecipeCatalog.Choice choice = recipes.get(recipeIndex);
             for (int i = page * pageSize(); i < Math.min(choice.inputs.size(), (page + 1) * pageSize()); i++) {
@@ -127,6 +129,11 @@ final class GuiRecipePicker extends GuiKanbanScreen {
     @Override
     protected void actionPerformed(GuiButton button) {
         if (button.id == BACK) {
+            goBack();
+            return;
+        }
+        if (button.id == AUTO) {
+            BreakdownJobs.breakDown(projectId, cardId, requirement);
             goBack();
             return;
         }

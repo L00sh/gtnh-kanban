@@ -28,7 +28,9 @@ import com.gtnhkanban.network.message.C2SSetCardAssigned;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
 import com.gtnhkanban.network.message.C2SUpdateCard;
+import com.gtnhkanban.network.message.C2SUploadBreakdown;
 import com.gtnhkanban.network.message.KanbanRequest;
+import com.gtnhkanban.network.message.RecipeTreeCodec;
 import com.gtnhkanban.network.message.RequestType;
 import com.gtnhkanban.network.message.S2CBoardSnapshot;
 import com.gtnhkanban.network.message.S2COpenProjectList;
@@ -73,6 +75,7 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new SetRequirementQuantityHandler(), C2SSetRequirementQuantity.class, 17, Side.SERVER);
         CHANNEL.registerMessage(new SetCardAssignedHandler(), C2SSetCardAssigned.class, 18, Side.SERVER);
         CHANNEL.registerMessage(new ExpandRequirementHandler(), C2SExpandRequirement.class, 19, Side.SERVER);
+        CHANNEL.registerMessage(new UploadBreakdownHandler(), C2SUploadBreakdown.class, 20, Side.SERVER);
     }
 
     public static void registerClientMessages() {
@@ -80,6 +83,11 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new ClientProjectListHandler(), S2CProjectList.class, 10, Side.CLIENT);
         CHANNEL.registerMessage(new ClientBoardHandler(), S2CBoardSnapshot.class, 11, Side.CLIENT);
         CHANNEL.registerMessage(new ClientResultHandler(), S2COperationResult.class, 12, Side.CLIENT);
+    }
+
+    /** Drops unfinished uploads from a stopped server. */
+    public static void clearUploads() {
+        BreakdownUploads.clear();
     }
 
     public static void requestProjectList(EntityPlayerMP player) {
@@ -248,6 +256,31 @@ public final class KanbanNetwork {
                         request.getMemberId(),
                         request.isComplete());
                     break;
+                case UPLOAD_BREAKDOWN:
+                    C2SUploadBreakdown part = (C2SUploadBreakdown) request;
+                    byte[] encoded;
+                    try {
+                        encoded = BreakdownUploads.accept(actorId, part);
+                    } catch (IllegalArgumentException exception) {
+                        result = OperationResult.failure("INVALID_UPLOAD", "The breakdown upload was interrupted.");
+                        break;
+                    }
+                    // Earlier parts get no reply; the result is sent once the whole tree has arrived.
+                    if (encoded == null) return;
+                    try {
+                        result = service.applyBreakdown(
+                            actorId,
+                            projectId,
+                            part.getCardId(),
+                            part.getEntryId(),
+                            part.getItem(),
+                            part.getQuantity(),
+                            part.getExpectedRevision(),
+                            RecipeTreeCodec.decode(encoded));
+                    } catch (RuntimeException exception) {
+                        result = OperationResult.failure("INVALID_RECIPE", "The breakdown could not be read.");
+                    }
+                    break;
                 case EXPAND_REQUIREMENT:
                     result = service.expandRequirement(
                         actorId,
@@ -350,6 +383,9 @@ public final class KanbanNetwork {
     }
 
     private static final class ExpandRequirementHandler extends ServerRequestHandler {
+    }
+
+    private static final class UploadBreakdownHandler extends ServerRequestHandler {
     }
 
     private static final class SetRequirementQuantityHandler extends ServerRequestHandler {

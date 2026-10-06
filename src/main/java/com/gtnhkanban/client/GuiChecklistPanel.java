@@ -37,23 +37,51 @@ final class GuiChecklistPanel {
     private final UUID projectId, cardId;
     private final RecipeAction recipeAction;
     private final int left, top, width, bottom;
-    private final Set<UUID> collapsed = new HashSet<UUID>();
+    /** Branches start collapsed; a full breakdown can be thousands of rows. */
+    private final Set<UUID> expanded = new HashSet<UUID>();
+    private boolean totalsOpen = true, toolsOpen;
     private final Map<UUID, GuiTextField> quantityFields = new HashMap<UUID, GuiTextField>();
     private final Map<UUID, Integer> observed = new HashMap<UUID, Integer>();
     private final RenderItem render = new RenderItem();
     private int scroll;
     private List<Row> visible = new ArrayList<Row>();
 
+    /** A checklist row, a section header (materials or tools), or one total within a section. */
     private static final class Row {
 
         final RequirementView requirement;
         final int depth;
+        final boolean header;
+        final MaterialTotals.Total total;
+        boolean tools;
 
         Row(RequirementView requirement, int depth) {
+            this(requirement, depth, false, null);
+        }
+
+        private Row(RequirementView requirement, int depth, boolean header, MaterialTotals.Total total) {
             this.requirement = requirement;
             this.depth = depth;
+            this.header = header;
+            this.total = total;
+        }
+
+        static Row header(boolean tools) {
+            Row row = new Row(null, 0, true, null);
+            row.tools = tools;
+            return row;
+        }
+
+        static Row total(MaterialTotals.Total total) {
+            return new Row(null, 1, false, total);
+        }
+
+        boolean isRequirement() {
+            return requirement != null;
         }
     }
+
+    private int totalCount, toolCount;
 
     GuiChecklistPanel(Minecraft mc, UUID projectId, UUID cardId, int left, int top, int width, int bottom,
         RecipeAction action) {
@@ -73,20 +101,50 @@ final class GuiChecklistPanel {
 
     private void flatten(RequirementView requirement, int depth, List<Row> rows) {
         rows.add(new Row(requirement, depth));
-        if (!collapsed.contains(requirement.getId()))
-            for (RequirementView child : requirement.getChildren()) flatten(child, depth + 1, rows);
+        if (expanded.contains(requirement.getId())) for (RequirementView child : requirement.getChildren())
+            if (!child.isReusable()) flatten(child, depth + 1, rows);
+    }
+
+    /** One entry per kind of tool: a recipe wanting a hammer is satisfied by a hammer of any material. */
+    private static List<MaterialTotals.Total> toolsByKind(List<MaterialTotals.Total> tools) {
+        Map<String, MaterialTotals.Total> kinds = new java.util.LinkedHashMap<String, MaterialTotals.Total>();
+        for (MaterialTotals.Total tool : tools) {
+            String kind = MaterialDisplay.toolName(tool.material);
+            if (!kinds.containsKey(kind)) kinds.put(kind, tool);
+        }
+        return new ArrayList<MaterialTotals.Total>(kinds.values());
+    }
+
+    /** Tools are listed in their own section, so a row only opens if it has materials below it. */
+    private static boolean hasMaterialChildren(RequirementView requirement) {
+        for (RequirementView child : requirement.getChildren()) if (!child.isReusable()) return true;
+        return false;
     }
 
     void refresh() {
         CardView card = KanbanClientState.findCard(cardId);
         List<Row> rows = new ArrayList<Row>();
+        totalCount = 0;
+        toolCount = 0;
+        if (card != null && MaterialTotals.hasBreakdown(card.getRequirements())) {
+            List<MaterialTotals.Total> totals = MaterialTotals.of(card.getRequirements());
+            totalCount = totals.size();
+            rows.add(Row.header(false));
+            if (totalsOpen) for (MaterialTotals.Total total : totals) rows.add(Row.total(total));
+            List<MaterialTotals.Total> tools = toolsByKind(MaterialTotals.tools(card.getRequirements()));
+            toolCount = tools.size();
+            if (toolCount > 0) {
+                rows.add(Row.header(true));
+                if (toolsOpen) for (MaterialTotals.Total tool : tools) rows.add(Row.total(tool));
+            }
+        }
         if (card != null) for (RequirementView requirement : card.getRequirements()) flatten(requirement, 0, rows);
         scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.size() - capacity())));
         visible = new ArrayList<Row>(rows.subList(scroll, Math.min(rows.size(), scroll + capacity())));
         Set<UUID> visibleRoots = new HashSet<UUID>();
         for (int i = 0; i < visible.size(); i++) {
             Row row = visible.get(i);
-            if (row.depth != 0) continue;
+            if (!row.isRequirement() || row.depth != 0) continue;
             UUID id = row.requirement.getId();
             visibleRoots.add(id);
             GuiTextField field = quantityFields.get(id);
@@ -128,15 +186,17 @@ final class GuiChecklistPanel {
             mc.fontRenderer.drawStringWithShadow("No checklist items. Add an item above.", left + 5, top + 5, 0xAAAAAA);
         for (int i = 0; i < visible.size(); i++) {
             Row row = visible.get(i);
-            RequirementView requirement = row.requirement;
             int y = top + i * ROW_HEIGHT + 2;
+            if (!row.isRequirement()) {
+                drawTotalsRow(row, y, mouseX, mouseY);
+                continue;
+            }
+            RequirementView requirement = row.requirement;
             int indent = Math.min(row.depth * 10, 70);
             int x = left + indent;
             Gui.drawRect(left, y - 1, left + width, y + 20, 0x55333333);
-            if (!requirement.getChildren()
-                .isEmpty())
-                control(0, x, y, 16, collapsed.contains(requirement.getId()) ? ">" : "v")
-                    .drawButton(mc, mouseX, mouseY);
+            if (hasMaterialChildren(requirement))
+                control(0, x, y, 16, expanded.contains(requirement.getId()) ? "v" : ">").drawButton(mc, mouseX, mouseY);
             ItemStack stack = MaterialDisplay.stack(requirement.getItem());
             if (stack != null)
                 render.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, x + 18, y);
@@ -161,11 +221,46 @@ final class GuiChecklistPanel {
         }
     }
 
+    private void drawTotalsRow(Row row, int y, int mouseX, int mouseY) {
+        if (row.header) {
+            Gui.drawRect(left, y - 1, left + width, y + 20, 0x77224466);
+            boolean open = row.tools ? toolsOpen : totalsOpen;
+            control(0, left, y, 16, open ? "v" : ">").drawButton(mc, mouseX, mouseY);
+            String title = row.tools ? "Tools & equipment (" + toolCount + ")"
+                : "Base materials for this card (" + totalCount + ")";
+            mc.fontRenderer.drawStringWithShadow(title, left + 22, y + 5, 0xFFFFFF);
+            return;
+        }
+        MaterialTotals.Total total = row.total;
+        int x = left + 10;
+        Gui.drawRect(left, y - 1, left + width, y + 20, 0x55223344);
+        ItemStack stack = MaterialDisplay.stack(total.material);
+        if (stack != null) render.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, x, y);
+        boolean fluid = total.material.isFluid();
+        long available = fluid ? 0 : KanbanClientControls.inventoryCount(mc, total.material);
+        String amount = total.reusable ? (available > 0 ? "have" : "need")
+            : fluid ? total.amount + " mB" : available + " / " + total.amount;
+        int amountWidth = mc.fontRenderer.getStringWidth(amount);
+        String label = total.reusable ? MaterialDisplay.toolName(total.material) : MaterialDisplay.name(total.material);
+        mc.fontRenderer.drawStringWithShadow(
+            mc.fontRenderer.trimStringToWidth(label, width - amountWidth - 40),
+            x + 20,
+            y + 5,
+            0xFFFFFF);
+        mc.fontRenderer.drawStringWithShadow(
+            amount,
+            left + width - amountWidth - 6,
+            y + 5,
+            !fluid && available >= (total.reusable ? 1 : total.amount) ? 0x55FF55 : 0xCCCCCC);
+    }
+
     List<String> tooltip(int mouseX, int mouseY) {
         if (mouseY < top || mouseY >= bottom || mouseX < left || mouseX >= left + width - 185)
             return java.util.Collections.emptyList();
         int i = (mouseY - top) / ROW_HEIGHT;
         if (i >= visible.size()) return java.util.Collections.emptyList();
+        if (!visible.get(i)
+            .isRequirement()) return totalsTooltip(visible.get(i));
         RequirementView row = visible.get(i).requirement;
         List<String> lines = new ArrayList<String>();
         lines.add(MaterialDisplay.name(row.getItem()));
@@ -180,18 +275,46 @@ final class GuiChecklistPanel {
         return lines;
     }
 
+    private List<String> totalsTooltip(Row row) {
+        List<String> lines = new ArrayList<String>();
+        if (row.header && row.tools) {
+            lines.add("Tools and other items the recipes use but do not");
+            lines.add("consume. They are not part of the material totals.");
+            return lines;
+        }
+        if (row.header) {
+            lines.add("Materials the unfinished rows below still consume,");
+            lines.add("added up across all of their recipe branches.");
+            lines.add("Rows marked done are left out.");
+            return lines;
+        }
+        lines.add(MaterialDisplay.name(row.total.material));
+        lines.add("Needed: " + row.total.amount + (row.total.material.isFluid() ? " mB" : " items"));
+        if (!row.total.material.isFluid())
+            lines.add("Carried or in open container: " + KanbanClientControls.inventoryCount(mc, row.total.material));
+        if (row.total.reusable) lines.add("Used by a recipe, not consumed.");
+        return lines;
+    }
+
     void click(int mouseX, int mouseY, int button) {
         for (GuiTextField field : quantityFields.values()) field.mouseClicked(mouseX, mouseY, button);
         if (button != 0 || mouseX < left || mouseX >= left + width || mouseY < top || mouseY >= bottom) return;
         int i = (mouseY - top) / ROW_HEIGHT;
         if (i >= visible.size()) return;
         Row row = visible.get(i);
+        if (!row.isRequirement()) {
+            if (row.header) {
+                if (row.tools) toolsOpen = !toolsOpen;
+                else totalsOpen = !totalsOpen;
+                refresh();
+            }
+            return;
+        }
         RequirementView requirement = row.requirement;
         int x = left + Math.min(row.depth * 10, 70);
         if (mouseX < x) return;
-        if (mouseX < x + 16 && !requirement.getChildren()
-            .isEmpty()) {
-            if (!collapsed.add(requirement.getId())) collapsed.remove(requirement.getId());
+        if (mouseX < x + 16 && hasMaterialChildren(requirement)) {
+            if (!expanded.add(requirement.getId())) expanded.remove(requirement.getId());
             refresh();
         } else if (mouseX >= left + width - 20) {
             KanbanNetwork.CHANNEL.sendToServer(new C2SDeleteRequirement(projectId, cardId, requirement.getId()));

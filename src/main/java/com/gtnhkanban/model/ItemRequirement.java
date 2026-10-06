@@ -173,6 +173,17 @@ public final class ItemRequirement {
         revision++;
     }
 
+    /** Replaces this row's material branch with a full nested breakdown. */
+    public void expandTree(RecipeTree tree) {
+        expand(tree.getPlan());
+        for (int i = 0; i < children.size(); i++) {
+            RecipeTree child = tree.getChildren()
+                .get(i);
+            if (child != null) children.get(i)
+                .expandTree(child);
+        }
+    }
+
     public void clearExpansion() {
         children.clear();
         recipeName = "";

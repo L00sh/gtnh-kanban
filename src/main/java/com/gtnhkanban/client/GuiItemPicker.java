@@ -11,9 +11,6 @@ import net.minecraft.client.gui.GuiTextField;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 
-import com.gtnhkanban.network.KanbanNetwork;
-import com.gtnhkanban.network.message.C2SAddRequirement;
-
 import codechicken.nei.ItemList;
 
 public final class GuiItemPicker extends GuiKanbanScreen {
@@ -131,8 +128,7 @@ public final class GuiItemPicker extends GuiKanbanScreen {
             int quantity = Integer.parseInt(quantityField.getText());
             Object registryName = Item.itemRegistry.getNameForObject(selected.getItem());
             if (quantity > 0 && registryName != null) {
-                KanbanNetwork.CHANNEL
-                    .sendToServer(new C2SAddRequirement(projectId, cardId, MaterialDisplay.key(selected), quantity));
+                BreakdownJobs.addWithBreakdown(projectId, cardId, MaterialDisplay.key(selected), quantity);
                 goBack();
             }
         } catch (NumberFormatException ignored) {

@@ -1,9 +1,10 @@
-"""Builds src/main/resources/assets/gtnhkanban/textures/gui/frame.png from art/frame-mockup.png.
+"""Builds src/main/resources/assets/gtnhkanban/textures/gui/frame.png from art/frame-mockup.png and art/card-mockup.png.
 
-The mockup is pixel art drawn at 2 image pixels per art pixel. This script cuts it into pieces the mod stretches at
+The mockups are pixel art drawn at 2 image pixels per art pixel. This script cuts it into pieces the mod stretches at
 runtime, so panels and tabs can be any size while staying pixel-exact:
 
   (0, 0)    panel 9-slice source, 17x17: 8x8 corners, 1px edges, 1px centre
+  (32, 0)   card 9-slice source, 17x17, same layout (from the card mockup)
   (0, 32)   tab, selected (teal), 13x21: 6px left cap, 1px fill, 6px right cap
   (16, 32)  tab, normal (orange)
   (32, 32)  tab, hover (placeholder: normal, lightened)
@@ -22,6 +23,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 MOCKUP = ROOT / "art" / "frame-mockup.png"
+CARD_MOCKUP = ROOT / "art" / "card-mockup.png"
 ATLAS = ROOT / "src" / "main" / "resources" / "assets" / "gtnhkanban" / "textures" / "gui" / "frame.png"
 
 # Art-pixel coordinates in the mockup (inclusive).
@@ -56,6 +58,8 @@ def main():
     atlas = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
 
     put_nine_slice(atlas, art, PANEL, 0, 0)
+    card = half(Image.open(CARD_MOCKUP).convert("RGBA"))
+    put_nine_slice(atlas, card, (0, 0, card.width - 1, card.height - 1), 32, 0)
     selected = three_slice(art, SELECTED_TAB)
     normal = three_slice(art, NORMAL_TAB)
     atlas.paste(selected, (0, 32))
@@ -74,6 +78,15 @@ def main():
     ATLAS.parent.mkdir(parents=True, exist_ok=True)
     atlas.save(ATLAS)
     print("wrote", ATLAS)
+
+
+def half(image):
+    """Samples every other pixel; unlike a resize this keeps an odd-sized mockup's last row."""
+    out = Image.new("RGBA", ((image.width + 1) // 2, (image.height + 1) // 2))
+    for y in range(out.height):
+        for x in range(out.width):
+            out.putpixel((x, y), image.getpixel((2 * x, 2 * y)))
+    return out
 
 
 def crop(art, x0, y0, x1, y1):

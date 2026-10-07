@@ -31,8 +31,10 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private static final int TOP = KanbanFrame.contentTop();
     private static final int HEADER = 18;
     private static final int GAP = 4;
-    static final int CARD_HEIGHT = 52;
-    private static final int CARD_GAP = 3;
+    static final int CARD_HEIGHT = 56;
+    /** Room around cards: between neighbours, and between a card and its column's sides. */
+    private static final int CARD_GAP = 6;
+    private static final int CARD_INSET = 6;
     private static final int MIN_COLUMN = 118;
     private static final int PITCH = CARD_HEIGHT + CARD_GAP;
     private static final int SCROLLBAR = 4;
@@ -155,7 +157,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     private int cardsTop() {
-        return TOP + HEADER + 2;
+        return TOP + HEADER + CARD_GAP;
     }
 
     private int visibleCardSlots() {
@@ -172,12 +174,18 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     private int scrollbarLeft(int column) {
-        return columnLeft(column) + columnWidth(column) - 3 - SCROLLBAR;
+        return columnLeft(column) + columnWidth(column) - 2 - SCROLLBAR;
+    }
+
+    private int cardLeft(int column) {
+        return columnLeft(column) + CARD_INSET;
     }
 
     /** Cards narrow to make room for the scrollbar when the column has one. */
     private int cardWidth(int column, int cardCount) {
-        return columnWidth(column) - 6 - (hasScrollbar(cardCount) ? SCROLLBAR + 2 : 0);
+        int right = hasScrollbar(cardCount) ? scrollbarLeft(column) - 3
+            : columnLeft(column) + columnWidth(column) - CARD_INSET;
+        return right - cardLeft(column);
     }
 
     private int columnAt(int mouseX) {
@@ -275,8 +283,8 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         int index = scrollOf(columnId, cards.size()) + slot;
         if (mouseY < cardsTop() || within >= CARD_HEIGHT || slot >= visibleCardSlots() || index >= cards.size())
             return null;
-        int left = columnLeft(column) + 3;
-        if (mouseX >= left + cardWidth(column, cards.size())) return null;
+        int left = cardLeft(column);
+        if (mouseX < left || mouseX >= left + cardWidth(column, cards.size())) return null;
         return cards.get(index);
     }
 
@@ -460,12 +468,13 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             int y = cardsTop() + slot * PITCH;
             boolean dragged = draggingCard && card.getId()
                 .equals(pressedCardId);
-            drawCard(card, left + 3, y, cardWidth, dragged);
-            if (mouseX >= left + 3 && mouseX < left + 3 + cardWidth && mouseY >= y && mouseY < y + CARD_HEIGHT)
-                hovered = card;
+            drawCard(card, cardLeft(index), y, cardWidth, dragged);
+            if (mouseX >= cardLeft(index) && mouseX < cardLeft(index) + cardWidth
+                && mouseY >= y
+                && mouseY < y + CARD_HEIGHT) hovered = card;
         }
         if (hasScrollbar(cards.size())) drawScrollbar(index, column.getId(), cards.size(), scroll, mouseX, mouseY);
-        if (dropTarget) drawInsertionLine(index, column.getId(), cards, scroll, left + 3, cardWidth);
+        if (dropTarget) drawInsertionLine(index, column.getId(), cards, scroll, cardLeft(index), cardWidth);
         return hovered;
     }
 
@@ -488,30 +497,35 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         int index = BoardLayout.dropIndex(dragMouseY, cardsTop(), PITCH, scroll, cards.size());
         int slot = index - scroll;
         if (slot < 0 || slot > visibleCardSlots()) return;
-        int y = Math.min(cardsTop() + slot * PITCH - 2, slotsBottom() + 1);
+        // Centred in the gap above the slot.
+        int y = Math.min(cardsTop() + slot * PITCH - CARD_GAP / 2 - 1, slotsBottom() + CARD_GAP / 2 - 1);
         drawRect(x, y, x + width, y + 2, 0xFF47D6C8);
     }
 
     private void drawCard(CardView card, int x, int y, int width, boolean faded) {
         CardType type = typeOf(card);
         int typeColor = type == null ? 0x555555 : type.getColor();
-        drawRect(x, y, x + width, y + CARD_HEIGHT, faded ? 0x66333333 : 0xEE2B2B2B);
-        drawRect(x, y, x + 3, y + CARD_HEIGHT, 0xFF000000 | typeColor);
-        int textX = x + 6;
+        KanbanFrame.card(mc, x, y, width, CARD_HEIGHT, faded ? 0.4f : 1f);
+        // The type's color runs down the inside of the card's left bevel.
+        int innerLeft = x + KanbanFrame.CARD_LEFT, innerTop = y + KanbanFrame.CARD_TOP;
+        drawRect(innerLeft, innerTop, innerLeft + 2, y + CARD_HEIGHT - KanbanFrame.CARD_BOTTOM, 0xFF000000 | typeColor);
+        int left = innerLeft + 5;
+        int right = x + width - KanbanFrame.CARD_RIGHT - 2;
+        int textX = left;
         ItemStack icon = iconStack(card.getIcon());
         if (icon != null) {
-            drawItem(icon, x + 5, y + 3);
-            textX = x + 24;
+            drawItem(icon, left - 1, innerTop + 1);
+            textX = left + 18;
         }
         String number = "§7#" + card.getNumber() + " §f";
         drawString(
             fontRendererObj,
-            fontRendererObj.trimStringToWidth(number + card.getTitle(), x + width - textX - 2),
+            fontRendererObj.trimStringToWidth(number + card.getTitle(), right - textX),
             textX,
-            y + 4,
+            innerTop + 3,
             0xFFFFFF);
 
-        int lineY = y + 17;
+        int lineY = innerTop + 16;
         if (type != null) {
             int badge = Math.min(fontRendererObj.getStringWidth(type.getName()) + 6, width - 50);
             drawRect(textX, lineY - 1, textX + badge, lineY + 9, 0xFF000000 | darken(typeColor));
@@ -526,22 +540,27 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         if (!priority.isEmpty()) drawString(
             fontRendererObj,
             priority,
-            x + width - fontRendererObj.getStringWidth(priority) - 4,
+            right - fontRendererObj.getStringWidth(priority),
             lineY,
             priorityColor(card.getPriority()));
 
         String meta = TimeText.ago(card.getCreatedAt(), System.currentTimeMillis());
         if (!card.getCreatorName()
             .isEmpty()) meta += (meta.isEmpty() ? "by " : " by ") + card.getCreatorName();
-        drawString(fontRendererObj, fontRendererObj.trimStringToWidth(meta, width - 10), x + 6, y + 29, 0x999999);
+        drawString(
+            fontRendererObj,
+            fontRendererObj.trimStringToWidth(meta, right - left),
+            left,
+            innerTop + 28,
+            0x999999);
 
         int total = card.progressTotal();
         if (total > 0) {
             int done = card.progressDone();
             String count = done + "/" + total;
-            int barRight = x + width - fontRendererObj.getStringWidth(count) - 8;
-            int barLeft = x + 6;
-            int barY = y + 42;
+            int barRight = right - fontRendererObj.getStringWidth(count) - 4;
+            int barLeft = left;
+            int barY = innerTop + 41;
             drawRect(barLeft, barY, barRight, barY + 4, 0xFF444444);
             drawRect(
                 barLeft,
@@ -556,7 +575,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private void drawDragged(List<BoardColumn> columns) {
         CardView card = KanbanClientState.findCard(pressedCardId);
         if (card == null) return;
-        drawCard(card, dragMouseX + 6, dragMouseY + 6, MIN_COLUMN - 6, false);
+        drawCard(card, dragMouseX + 6, dragMouseY + 6, MIN_COLUMN - 2 * CARD_INSET, false);
     }
 
     private List<String> cardTooltip(CardView card) {

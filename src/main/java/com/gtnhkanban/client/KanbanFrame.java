@@ -256,16 +256,32 @@ final class KanbanFrame {
 
     static void panel(Minecraft mc, int x, int y, int width, int height) {
         bind(mc);
+        nineSlice(0, x, y, width, height);
+    }
+
+    /** Bevel widths of the card art, for placing content inside it. */
+    static final int CARD_LEFT = 5, CARD_TOP = 5, CARD_RIGHT = 4, CARD_BOTTOM = 4;
+
+    /** A card's bevelled background; {@code alpha} below 1 fades it, e.g. while the card is being dragged. */
+    static void card(Minecraft mc, int x, int y, int width, int height, float alpha) {
+        bind(mc);
+        GL11.glColor4f(1, 1, 1, alpha);
+        nineSlice(32, x, y, width, height);
+        GL11.glColor4f(1, 1, 1, 1);
+    }
+
+    /** Draws the 17x17 9-slice whose atlas source starts at (u, 0) over (x, y, width, height). */
+    private static void nineSlice(int u, int x, int y, int width, int height) {
         int innerW = Math.max(0, width - 2 * CORNER), innerH = Math.max(0, height - 2 * CORNER);
-        quad(x, y, CORNER, CORNER, 0, 0, CORNER, CORNER);
-        quad(x + width - CORNER, y, CORNER, CORNER, 9, 0, CORNER, CORNER);
-        quad(x, y + height - CORNER, CORNER, CORNER, 0, 9, CORNER, CORNER);
-        quad(x + width - CORNER, y + height - CORNER, CORNER, CORNER, 9, 9, CORNER, CORNER);
-        quad(x + CORNER, y, innerW, CORNER, 8, 0, 1, CORNER);
-        quad(x + CORNER, y + height - CORNER, innerW, CORNER, 8, 9, 1, CORNER);
-        quad(x, y + CORNER, CORNER, innerH, 0, 8, CORNER, 1);
-        quad(x + width - CORNER, y + CORNER, CORNER, innerH, 9, 8, CORNER, 1);
-        quad(x + CORNER, y + CORNER, innerW, innerH, 8, 8, 1, 1);
+        quad(x, y, CORNER, CORNER, u, 0, CORNER, CORNER);
+        quad(x + width - CORNER, y, CORNER, CORNER, u + 9, 0, CORNER, CORNER);
+        quad(x, y + height - CORNER, CORNER, CORNER, u, 9, CORNER, CORNER);
+        quad(x + width - CORNER, y + height - CORNER, CORNER, CORNER, u + 9, 9, CORNER, CORNER);
+        quad(x + CORNER, y, innerW, CORNER, u + 8, 0, 1, CORNER);
+        quad(x + CORNER, y + height - CORNER, innerW, CORNER, u + 8, 9, 1, CORNER);
+        quad(x, y + CORNER, CORNER, innerH, u, 8, CORNER, 1);
+        quad(x + width - CORNER, y + CORNER, CORNER, innerH, u + 9, 8, CORNER, 1);
+        quad(x + CORNER, y + CORNER, innerW, innerH, u + 8, 8, 1, 1);
     }
 
     static void drawTab(Minecraft mc, Tab tab, int mouseX, int mouseY) {

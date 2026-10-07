@@ -19,7 +19,13 @@ abstract class CardFieldsRequest extends KanbanRequest {
 
     CardFieldsRequest(String title, String description, UUID projectId, UUID cardId, UUID columnId, UUID typeId,
         Priority priority, ItemKey icon) {
-        super(title, description, projectId, cardId, null, null, 0, false, null, null);
+        this(title, description, projectId, cardId, null, columnId, typeId, priority, icon);
+    }
+
+    /** @param entryId a second card the request refers to, such as the card a moved card lands before */
+    CardFieldsRequest(String title, String description, UUID projectId, UUID cardId, UUID entryId, UUID columnId,
+        UUID typeId, Priority priority, ItemKey icon) {
+        super(title, description, projectId, cardId, entryId, null, 0, false, null, null);
         this.columnId = columnId;
         this.typeId = typeId;
         this.priority = priority == null ? Priority.NONE : priority;

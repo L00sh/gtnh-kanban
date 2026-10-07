@@ -2,7 +2,6 @@ package com.gtnhkanban.client;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,7 +34,11 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private static final int GAP = 4;
     static final int CARD_HEIGHT = 52;
     private static final int CARD_GAP = 3;
-    private static final int MIN_COLUMN = 118, MAX_COLUMN = 170;
+    private static final int MIN_COLUMN = 118;
+    private static final int PITCH = CARD_HEIGHT + CARD_GAP;
+    private static final int SCROLLBAR = 4;
+    /** Ticks between automatic scroll steps while dragging a card at a column's edge. */
+    private static final int AUTOSCROLL_TICKS = 4;
 
     private final UUID projectId;
     private final RenderItem render = new RenderItem();
@@ -45,6 +48,9 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private UUID pressedCardId;
     private int pressedX, pressedY, dragMouseX, dragMouseY;
     private boolean draggingCard;
+    /** Column whose scrollbar thumb is being dragged, and where on the thumb it was grabbed. */
+    private UUID scrollDragColumn;
+    private int scrollGrab, autoscrollTicks;
 
     public GuiKanbanBoard(UUID projectId) {
         this(projectId, null);
@@ -100,9 +106,9 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
 
     @Override
     protected void actionPerformed(GuiButton button) {
-        if (button.id == SCROLL_LEFT) horizontalScroll = Math.max(0, horizontalScroll - columnWidth());
+        if (button.id == SCROLL_LEFT) horizontalScroll = Math.max(0, horizontalScroll - (MIN_COLUMN + GAP));
         else if (button.id == SCROLL_RIGHT)
-            horizontalScroll = Math.min(maxHorizontalScroll(), horizontalScroll + columnWidth());
+            horizontalScroll = Math.min(maxHorizontalScroll(), horizontalScroll + (MIN_COLUMN + GAP));
     }
 
     // ---- layout ----
@@ -114,14 +120,16 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                 .getColumns();
     }
 
-    private int columnWidth() {
-        int count = Math.max(1, columns().size());
-        return Math.max(MIN_COLUMN, Math.min(MAX_COLUMN, (areaWidth() - GAP * (count - 1)) / count));
+    private int[][] layout() {
+        return BoardLayout.columns(KanbanFrame.contentLeft(), areaWidth(), columns().size(), GAP, MIN_COLUMN);
+    }
+
+    private int columnWidth(int index) {
+        return layout()[1][index];
     }
 
     private int boardWidth() {
-        int count = columns().size();
-        return count * columnWidth() + Math.max(0, count - 1) * GAP;
+        return BoardLayout.totalWidth(layout(), GAP);
     }
 
     private int maxHorizontalScroll() {
@@ -134,9 +142,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     private int columnLeft(int index) {
-        int offset = boardWidth() <= areaWidth() ? KanbanFrame.contentLeft() + (areaWidth() - boardWidth()) / 2
-            : KanbanFrame.contentLeft() - horizontalScroll;
-        return offset + index * (columnWidth() + GAP);
+        return layout()[0][index] - horizontalScroll;
     }
 
     /** Only the part of the board inside the panel is visible, so only it takes clicks and drops. */
@@ -155,16 +161,39 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     private int visibleCardSlots() {
-        return Math.max(1, (bottom() - cardsTop()) / (CARD_HEIGHT + CARD_GAP));
+        return Math.max(1, (bottom() - cardsTop()) / PITCH);
+    }
+
+    /** Bottom of the last card slot, where a column's scrollbar track ends. */
+    private int slotsBottom() {
+        return cardsTop() + visibleCardSlots() * PITCH - CARD_GAP;
+    }
+
+    private boolean hasScrollbar(int cardCount) {
+        return cardCount > visibleCardSlots();
+    }
+
+    private int scrollbarLeft(int column) {
+        return columnLeft(column) + columnWidth(column) - 3 - SCROLLBAR;
+    }
+
+    /** Cards narrow to make room for the scrollbar when the column has one. */
+    private int cardWidth(int column, int cardCount) {
+        return columnWidth(column) - 6 - (hasScrollbar(cardCount) ? SCROLLBAR + 2 : 0);
     }
 
     private int columnAt(int mouseX) {
         List<BoardColumn> columns = columns();
         for (int index = 0; index < columns.size(); index++) {
             int left = columnLeft(index);
-            if (mouseX >= left && mouseX < left + columnWidth()) return index;
+            if (mouseX >= left && mouseX < left + columnWidth(index)) return index;
         }
         return -1;
+    }
+
+    private void setScroll(UUID columnId, int value) {
+        columnScroll.put(columnId, value);
+        columnScroll.put(columnId, scrollOf(columnId, cardsIn(columnId).size()));
     }
 
     private int scrollOf(UUID columnId, int cardCount) {
@@ -190,9 +219,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         }
         UUID columnId = columns().get(column)
             .getId();
-        int count = cardsIn(columnId).size();
-        columnScroll.put(columnId, scrollOf(columnId, count) + (wheel > 0 ? -1 : 1));
-        columnScroll.put(columnId, scrollOf(columnId, count));
+        setScroll(columnId, scrollOf(columnId, cardsIn(columnId).size()) + (wheel > 0 ? -1 : 1));
     }
 
     @Override
@@ -209,12 +236,13 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         BoardColumn target = columns().get(column);
         int left = columnLeft(column);
         if (mouseY < TOP + HEADER) {
-            if (mouseX >= left + columnWidth() - 16) {
+            if (mouseX >= left + columnWidth(column) - 16) {
                 mc.displayGuiScreen(new GuiCardDetail(projectId, null, this, target.getId()));
             }
             return;
         }
-        CardView card = cardAt(column, mouseY);
+        if (clickScrollbar(column, target.getId(), mouseX, mouseY)) return;
+        CardView card = cardAt(column, mouseY, mouseX);
         if (card != null) {
             pressedCardId = card.getId();
             pressedX = mouseX;
@@ -222,21 +250,41 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         }
     }
 
-    private CardView cardAt(int column, int mouseY) {
+    /** Starts dragging the thumb, or pages up or down when the track is clicked elsewhere. */
+    private boolean clickScrollbar(int column, UUID columnId, int mouseX, int mouseY) {
+        int count = cardsIn(columnId).size();
+        int barLeft = scrollbarLeft(column);
+        if (!hasScrollbar(count) || mouseX < barLeft - 1
+            || mouseX >= barLeft + SCROLLBAR + 1
+            || mouseY < cardsTop()
+            || mouseY >= slotsBottom()) return false;
+        int scroll = scrollOf(columnId, count);
+        int[] thumb = BoardLayout.thumb(cardsTop(), slotsBottom() - cardsTop(), visibleCardSlots(), count, scroll);
+        if (mouseY >= thumb[0] && mouseY < thumb[0] + thumb[1]) {
+            scrollDragColumn = columnId;
+            scrollGrab = mouseY - thumb[0];
+        } else setScroll(columnId, scroll + (mouseY < thumb[0] ? -visibleCardSlots() : visibleCardSlots()));
+        return true;
+    }
+
+    private CardView cardAt(int column, int mouseY, int mouseX) {
         UUID columnId = columns().get(column)
             .getId();
         List<CardView> cards = cardsIn(columnId);
-        int slot = (mouseY - cardsTop()) / (CARD_HEIGHT + CARD_GAP);
-        int within = (mouseY - cardsTop()) % (CARD_HEIGHT + CARD_GAP);
+        int slot = (mouseY - cardsTop()) / PITCH;
+        int within = (mouseY - cardsTop()) % PITCH;
         int index = scrollOf(columnId, cards.size()) + slot;
         if (mouseY < cardsTop() || within >= CARD_HEIGHT || slot >= visibleCardSlots() || index >= cards.size())
             return null;
+        int left = columnLeft(column) + 3;
+        if (mouseX >= left + cardWidth(column, cards.size())) return null;
         return cards.get(index);
     }
 
     @Override
     protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
         super.mouseMovedOrUp(mouseX, mouseY, button);
+        if (button == 0) scrollDragColumn = null;
         if (button != 0 || pressedCardId == null) return;
         UUID cardId = pressedCardId;
         pressedCardId = null;
@@ -248,19 +296,87 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         }
         int column = columnAt(mouseX);
         if (column < 0 || !inBoardArea(mouseX, mouseY)) return;
+        drop(cardId, column, mouseY);
+    }
+
+    /**
+     * Drops a card where the insertion line shows: above the card at the drop index, or at the bottom of the column.
+     * Dropping a card onto its own place changes nothing.
+     */
+    private void drop(UUID cardId, int column, int mouseY) {
         BoardColumn target = columns().get(column);
         CardView card = KanbanClientState.findCard(cardId);
-        if (card != null && !card.getColumnId()
-            .equals(target.getId())) {
-            KanbanClientState.moveCardLocally(projectId, cardId, target.getId());
-            KanbanClientState.setResult(true, "", "Moved #" + card.getNumber() + " to " + target.getName() + ".");
-            KanbanNetwork.CHANNEL.sendToServer(new C2SMoveCard(projectId, cardId, target.getId()));
-        }
+        if (card == null) return;
+        CardView before = dropTarget(card, target.getId(), mouseY);
+        boolean sameColumn = card.getColumnId()
+            .equals(target.getId());
+        if (sameColumn && same(before, cardAfter(card, cardsIn(target.getId())))) return;
+        UUID beforeId = before == null ? null : before.getId();
+        KanbanClientState.moveCardLocally(projectId, cardId, target.getId(), beforeId);
+        KanbanClientState.setResult(
+            true,
+            "",
+            sameColumn ? "Moved #" + card.getNumber() + "."
+                : "Moved #" + card.getNumber() + " to " + target.getName() + ".");
+        KanbanNetwork.CHANNEL.sendToServer(new C2SMoveCard(projectId, cardId, target.getId(), beforeId));
+    }
+
+    /** The card the dragged card would land above, or null for the bottom of the column. */
+    private CardView dropTarget(CardView dragged, UUID columnId, int mouseY) {
+        List<CardView> shown = cardsIn(columnId);
+        int index = BoardLayout.dropIndex(mouseY, cardsTop(), PITCH, scrollOf(columnId, shown.size()), shown.size());
+        CardView before = index < shown.size() ? shown.get(index) : null;
+        // Landing just above itself is the same place as just above the card after it.
+        return same(before, dragged) ? cardAfter(dragged, shown) : before;
+    }
+
+    private static CardView cardAfter(CardView card, List<CardView> shown) {
+        for (int i = 0; i < shown.size() - 1; i++) if (same(shown.get(i), card)) return shown.get(i + 1);
+        return null;
+    }
+
+    private static boolean same(CardView first, CardView second) {
+        return first == null ? second == null
+            : second != null && first.getId()
+                .equals(second.getId());
+    }
+
+    /** While a card is dragged near a column's top or bottom edge, that column scrolls. */
+    @Override
+    public void updateScreen() {
+        super.updateScreen();
+        if (!draggingCard || ++autoscrollTicks < AUTOSCROLL_TICKS) return;
+        autoscrollTicks = 0;
+        int column = columnAt(dragMouseX);
+        if (column < 0) return;
+        UUID columnId = columns().get(column)
+            .getId();
+        int scroll = scrollOf(columnId, cardsIn(columnId).size());
+        if (dragMouseY < cardsTop() + 12) setScroll(columnId, scroll - 1);
+        else if (dragMouseY > slotsBottom() - 12 && dragMouseY < bottom()) setScroll(columnId, scroll + 1);
     }
 
     @Override
     protected void mouseClickMove(int mouseX, int mouseY, int clickedMouseButton, long timeSinceLastClick) {
         super.mouseClickMove(mouseX, mouseY, clickedMouseButton, timeSinceLastClick);
+        if (clickedMouseButton == 0 && scrollDragColumn != null) {
+            int count = cardsIn(scrollDragColumn).size();
+            int[] thumb = BoardLayout.thumb(
+                cardsTop(),
+                slotsBottom() - cardsTop(),
+                visibleCardSlots(),
+                count,
+                scrollOf(scrollDragColumn, count));
+            setScroll(
+                scrollDragColumn,
+                BoardLayout.scrollForThumb(
+                    mouseY - scrollGrab,
+                    cardsTop(),
+                    slotsBottom() - cardsTop(),
+                    thumb[1],
+                    Math.max(0, count - visibleCardSlots())));
+            return;
+        }
         if (clickedMouseButton != 0 || pressedCardId == null) return;
         dragMouseX = mouseX;
         dragMouseY = mouseY;
@@ -319,7 +435,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     /** @return the card under the mouse, if any */
     private CardView drawColumn(int index, BoardColumn column, int mouseX, int mouseY) {
         int left = columnLeft(index);
-        int width = columnWidth();
+        int width = columnWidth(index);
         if (left + width < 0 || left > this.width) return null;
         List<CardView> cards = cardsIn(column.getId());
         boolean dropTarget = draggingCard && columnAt(dragMouseX) == index;
@@ -338,22 +454,43 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         drawCenteredString(fontRendererObj, "+", left + width - 9, TOP + 5, 0xFFFFFF);
 
         int scroll = scrollOf(column.getId(), cards.size());
+        int cardWidth = cardWidth(index, cards.size());
         CardView hovered = null;
         for (int slot = 0; slot < visibleCardSlots() && scroll + slot < cards.size(); slot++) {
             CardView card = cards.get(scroll + slot);
-            int y = cardsTop() + slot * (CARD_HEIGHT + CARD_GAP);
+            int y = cardsTop() + slot * PITCH;
             boolean dragged = draggingCard && card.getId()
                 .equals(pressedCardId);
-            drawCard(card, left + 3, y, width - 6, dragged);
-            if (mouseX >= left + 3 && mouseX < left + width - 3 && mouseY >= y && mouseY < y + CARD_HEIGHT)
+            drawCard(card, left + 3, y, cardWidth, dragged);
+            if (mouseX >= left + 3 && mouseX < left + 3 + cardWidth && mouseY >= y && mouseY < y + CARD_HEIGHT)
                 hovered = card;
         }
-        if (scroll > 0)
-            drawCenteredString(fontRendererObj, "▲ " + scroll + " more", left + width / 2, cardsTop() - 1, 0xAAAAAA);
-        int below = cards.size() - scroll - visibleCardSlots();
-        if (below > 0)
-            drawCenteredString(fontRendererObj, "▼ " + below + " more", left + width / 2, bottom() - 9, 0xAAAAAA);
+        if (hasScrollbar(cards.size())) drawScrollbar(index, column.getId(), cards.size(), scroll, mouseX, mouseY);
+        if (dropTarget) drawInsertionLine(index, column.getId(), cards, scroll, left + 3, cardWidth);
         return hovered;
+    }
+
+    private void drawScrollbar(int column, UUID columnId, int count, int scroll, int mouseX, int mouseY) {
+        int x = scrollbarLeft(column);
+        int trackTop = cardsTop(), trackHeight = slotsBottom() - cardsTop();
+        int[] thumb = BoardLayout.thumb(trackTop, trackHeight, visibleCardSlots(), count, scroll);
+        boolean active = columnId.equals(scrollDragColumn)
+            || mouseX >= x - 1 && mouseX < x + SCROLLBAR + 1 && mouseY >= thumb[0] && mouseY < thumb[0] + thumb[1];
+        drawRect(x, trackTop, x + SCROLLBAR, trackTop + trackHeight, 0xFF161616);
+        // Thumb colors follow the frame's bevel greys.
+        drawRect(x, thumb[0], x + SCROLLBAR, thumb[0] + thumb[1], active ? 0xFF8A8A8A : 0xFF6A6A6A);
+        drawRect(x + SCROLLBAR - 1, thumb[0], x + SCROLLBAR, thumb[0] + thumb[1], 0xFF444444);
+    }
+
+    /** A bright line where the dragged card would land. */
+    private void drawInsertionLine(int column, UUID columnId, List<CardView> cards, int scroll, int x, int width) {
+        CardView dragged = KanbanClientState.findCard(pressedCardId);
+        if (dragged == null) return;
+        int index = BoardLayout.dropIndex(dragMouseY, cardsTop(), PITCH, scroll, cards.size());
+        int slot = index - scroll;
+        if (slot < 0 || slot > visibleCardSlots()) return;
+        int y = Math.min(cardsTop() + slot * PITCH - 2, slotsBottom() + 1);
+        drawRect(x, y, x + width, y + 2, 0xFF47D6C8);
     }
 
     private void drawCard(CardView card, int x, int y, int width, boolean faded) {
@@ -420,7 +557,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private void drawDragged(List<BoardColumn> columns) {
         CardView card = KanbanClientState.findCard(pressedCardId);
         if (card == null) return;
-        drawCard(card, dragMouseX + 6, dragMouseY + 6, columnWidth() - 6, false);
+        drawCard(card, dragMouseX + 6, dragMouseY + 6, MIN_COLUMN - 6, false);
     }
 
     private List<String> cardTooltip(CardView card) {
@@ -444,7 +581,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             lines.add(
                 "§7Comments: §f" + card.getComments()
                     .size());
-        lines.add("§8Click to open, drag to move");
+        lines.add("§8Click to open, drag to move or reorder");
         return lines;
     }
 
@@ -458,22 +595,13 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                     .getId()) ? board : null;
     }
 
-    /** Cards in a column, highest priority first, then by number. */
+    /** Cards in a column, in board order (the order members arrange them in by dragging). */
     private List<CardView> cardsIn(UUID columnId) {
         List<CardView> cards = new ArrayList<CardView>();
         BoardSnapshot board = board();
         if (board == null) return cards;
         for (CardView card : board.getCards()) if (card.getColumnId()
             .equals(columnId)) cards.add(card);
-        Collections.sort(cards, new Comparator<CardView>() {
-
-            @Override
-            public int compare(CardView first, CardView second) {
-                int byPriority = second.getPriority()
-                    .compareTo(first.getPriority());
-                return byPriority != 0 ? byPriority : Integer.compare(first.getNumber(), second.getNumber());
-            }
-        });
         return cards;
     }
 

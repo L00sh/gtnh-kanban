@@ -13,6 +13,7 @@ import com.gtnhkanban.api.MemberSummary;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
 import com.gtnhkanban.api.TaskView;
+import com.gtnhkanban.model.CardOrder;
 
 /** Client-thread cache of server snapshots used only for rendering GUI screens. */
 public final class KanbanClientState {
@@ -76,9 +77,24 @@ public final class KanbanClientState {
         return board;
     }
 
-    public static void moveCardLocally(UUID projectId, UUID cardId, UUID columnId) {
+    /** Shows a move immediately, placed exactly where the server will put it. */
+    public static void moveCardLocally(UUID projectId, UUID cardId, UUID columnId, UUID beforeCardId) {
+        if (board == null || !board.getProject()
+            .getId()
+            .equals(projectId)) return;
         CardView card = findCard(cardId);
-        if (card != null) replaceLocally(projectId, card.withColumn(columnId));
+        if (card == null) return;
+        List<CardView> cards = new ArrayList<CardView>(board.getCards());
+        cards.remove(card);
+        CardView before = beforeCardId == null ? null : findCard(beforeCardId);
+        cards.add(CardOrder.insertionIndex(cards, new CardOrder.Columns<CardView>() {
+
+            @Override
+            public UUID columnOf(CardView value) {
+                return value.getColumnId();
+            }
+        }, columnId, before), card.withColumn(columnId));
+        setBoard(board.withCards(cards));
     }
 
     public static void removeRequirementLocally(UUID projectId, UUID cardId, UUID requirementId) {

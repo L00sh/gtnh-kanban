@@ -4,7 +4,9 @@ The mockups are pixel art drawn at 2 image pixels per art pixel. This script cut
 runtime, so panels and tabs can be any size while staying pixel-exact:
 
   (0, 0)    panel 9-slice source, 17x17: 8x8 corners, 1px edges, 1px centre
-  (32, 0)   card 9-slice source, 17x17, same layout (from the card mockup)
+  (32, 0)   card fill 9-slice, 17x17, same layout: the card mockup's inner fill and inner shadow only
+  (64, 0)   card border 9-slice: the mockup's bevel, brightened so its lightest grey is white; the mod tints it
+            with the card type's color (multiplying back by the original grey gives the untinted look)
   (0, 32)   tab, selected (teal), 13x21: 6px left cap, 1px fill, 6px right cap
   (16, 32)  tab, normal (orange)
   (32, 32)  tab, hover (placeholder: normal, lightened)
@@ -26,6 +28,9 @@ ROOT = Path(__file__).resolve().parent.parent
 MOCKUP = ROOT / "art" / "frame-mockup.png"
 CARD_MOCKUP = ROOT / "art" / "card-mockup.png"
 PRIORITIES = ["low", "medium", "high"]
+CARD_FILL = {(0x3C, 0x3C, 0x3C), (0x23, 0x23, 0x23)}
+CARD_OUTLINE = (0x30, 0x30, 0x30)
+CARD_BORDER_LIGHT = 0x9A
 ATLAS = ROOT / "src" / "main" / "resources" / "assets" / "gtnhkanban" / "textures" / "gui" / "frame.png"
 
 # Art-pixel coordinates in the mockup (inclusive).
@@ -62,6 +67,7 @@ def main():
     put_nine_slice(atlas, art, PANEL, 0, 0)
     card = half(Image.open(CARD_MOCKUP).convert("RGBA"))
     put_nine_slice(atlas, card, (0, 0, card.width - 1, card.height - 1), 32, 0)
+    split_card(atlas, 32, 64)
     for i, name in enumerate(PRIORITIES):
         atlas.paste(Image.open(ROOT / "art" / ("priority-%s.png" % name)).convert("RGBA"), (16 * i, 64))
     selected = three_slice(art, SELECTED_TAB)
@@ -91,6 +97,19 @@ def half(image):
         for x in range(out.width):
             out.putpixel((x, y), image.getpixel((2 * x, 2 * y)))
     return out
+
+
+def split_card(atlas, fill_u, border_u):
+    """Moves the card slice's bevel from fill_u to border_u, brightened for tinting; the outline stays dark."""
+    for y in range(17):
+        for x in range(17):
+            r, g, b, a = atlas.getpixel((fill_u + x, y))
+            if not a or (r, g, b) in CARD_FILL:
+                continue
+            atlas.putpixel((fill_u + x, y), (0, 0, 0, 0))
+            if (r, g, b) != CARD_OUTLINE:
+                r, g, b = (min(255, round(c * 255 / CARD_BORDER_LIGHT)) for c in (r, g, b))
+            atlas.putpixel((border_u + x, y), (r, g, b, a))
 
 
 def crop(art, x0, y0, x1, y1):

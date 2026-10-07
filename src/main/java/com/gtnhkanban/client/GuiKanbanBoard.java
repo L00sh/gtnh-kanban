@@ -534,7 +534,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
 
     /** Where a card's title starts, from the card's left edge: right of its icon when it has one. */
     private int titleOffset(CardView card) {
-        return KanbanFrame.CARD_LEFT + 5 + (iconStack(card.getIcon()) == null ? 0 : 18);
+        return KanbanFrame.CARD_LEFT + 3 + (iconStack(card.getIcon()) == null ? 0 : 18);
     }
 
     /** The title wrapped beside the card number, which sits at the right end of the first line. */
@@ -556,11 +556,10 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         CardType type = typeOf(card);
         int typeColor = type == null ? 0x555555 : type.getColor();
         int height = cardHeight(card, width);
-        KanbanFrame.card(mc, x, y, width, height, faded ? 0.4f : 1f);
-        // The type's color runs down the inside of the card's left bevel.
+        // The card's border takes its type's color.
+        KanbanFrame.card(mc, x, y, width, height, type == null ? KanbanFrame.PLAIN_CARD : typeColor, faded ? 0.4f : 1f);
         int innerLeft = x + KanbanFrame.CARD_LEFT, innerTop = y + KanbanFrame.CARD_TOP;
-        drawRect(innerLeft, innerTop, innerLeft + 2, y + height - KanbanFrame.CARD_BOTTOM, 0xFF000000 | typeColor);
-        int left = innerLeft + 5;
+        int left = innerLeft + 3;
         int right = x + width - KanbanFrame.CARD_RIGHT - 2;
         int textX = x + titleOffset(card);
         ItemStack icon = iconStack(card.getIcon());

@@ -264,11 +264,19 @@ final class KanbanFrame {
     /** Bevel widths of the card art, for placing content inside it. */
     static final int CARD_LEFT = 5, CARD_TOP = 5, CARD_RIGHT = 4, CARD_BOTTOM = 4;
 
-    /** A card's bevelled background; {@code alpha} below 1 fades it, e.g. while the card is being dragged. */
-    static void card(Minecraft mc, int x, int y, int width, int height, float alpha) {
+    /** The card border tint that reproduces the art's own grey, for cards without a type. */
+    static final int PLAIN_CARD = 0x9A9A9A;
+
+    /**
+     * A card's bevelled background with its border tinted {@code tint} (RGB); {@code alpha} below 1 fades it, e.g.
+     * while the card is being dragged.
+     */
+    static void card(Minecraft mc, int x, int y, int width, int height, int tint, float alpha) {
         bind(mc);
         GL11.glColor4f(1, 1, 1, alpha);
         nineSlice(32, x, y, width, height);
+        GL11.glColor4f((tint >> 16 & 255) / 255f, (tint >> 8 & 255) / 255f, (tint & 255) / 255f, alpha);
+        nineSlice(64, x, y, width, height);
         GL11.glColor4f(1, 1, 1, 1);
     }
 

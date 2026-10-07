@@ -28,8 +28,9 @@ import com.gtnhkanban.network.message.C2SSetProjectIcon;
 /** The board: one scrollable column per server-wide column, with draggable cards. */
 public final class GuiKanbanBoard extends GuiKanbanScreen {
 
-    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6;
-    private static final int TOP = 32;
+    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6,
+        BOARD = 7;
+    private static final int TOP = KanbanFrame.contentTop();
     private static final int HEADER = 18;
     private static final int GAP = 4;
     static final int CARD_HEIGHT = 52;
@@ -40,6 +41,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     private final RenderItem render = new RenderItem();
     private final Map<UUID, Integer> columnScroll = new HashMap<UUID, Integer>();
     private int horizontalScroll;
+    private KanbanFrame.Tabs tabs = new KanbanFrame.Tabs();
     private UUID pressedCardId;
     private int pressedX, pressedY, dragMouseX, dragMouseY;
     private boolean draggingCard;
@@ -57,20 +59,35 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     @Override
     public void initGui() {
         buttonList.clear();
-        buttonList.add(new GuiButton(BACK, 4, 4, 60, 20, "Projects"));
-        buttonList.add(new GuiButton(ICON, width - 214, 4, 50, 20, "Icon"));
-        buttonList.add(new GuiButton(MEMBERS, width - 160, 4, 70, 20, "Members"));
-        buttonList.add(new GuiButton(SETTINGS, width - 86, 4, 82, 20, "Board settings"));
-        buttonList.add(new GuiButton(SCROLL_LEFT, 4, height - 22, 20, 18, "<"));
-        buttonList.add(new GuiButton(SCROLL_RIGHT, width - 24, height - 22, 20, 18, ">"));
+        int arrowsY = KanbanFrame.contentBottom(height) - 20;
+        buttonList.add(new GuiButton(SCROLL_LEFT, KanbanFrame.contentLeft(), arrowsY, 20, 18, "<"));
+        buttonList.add(new GuiButton(SCROLL_RIGHT, KanbanFrame.contentRight(width) - 20, arrowsY, 20, 18, ">"));
+        rebuildTabs();
     }
 
-    @Override
-    protected void actionPerformed(GuiButton button) {
-        if (button.id == BACK) goBack();
-        else if (button.id == MEMBERS && projectId != null) mc.displayGuiScreen(new GuiProjectMembers(projectId, this));
-        else if (button.id == SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
-        else if (button.id == ICON && projectId != null) {
+    /** The board's name and icon live in its tab, so tabs are rebuilt when the board changes. */
+    private void rebuildTabs() {
+        BoardSnapshot board = board();
+        String name = board == null ? "Loading..."
+            : board.getProject()
+                .getName();
+        ItemStack icon = board == null ? null
+            : iconStack(
+                board.getProject()
+                    .getIcon());
+        tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false)
+            .add(BOARD, fontRendererObj.trimStringToWidth(name, 140), icon, true)
+            .add(MEMBERS, "Members", null, false)
+            .addRight(SETTINGS, "Board settings", null, true)
+            .addRight(ICON, "Change project icon", icon, false);
+        tabs.layout(fontRendererObj, width);
+    }
+
+    private void tabClicked(int id) {
+        if (id == BACK) openProjects();
+        else if (id == MEMBERS && projectId != null) mc.displayGuiScreen(new GuiProjectMembers(projectId, this));
+        else if (id == SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
+        else if (id == ICON && projectId != null) {
             mc.displayGuiScreen(new GuiItemPicker(this, "Choose a project icon", new GuiItemPicker.IconChoice() {
 
                 @Override
@@ -78,7 +95,12 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                     KanbanNetwork.CHANNEL.sendToServer(new C2SSetProjectIcon(projectId, icon));
                 }
             }));
-        } else if (button.id == SCROLL_LEFT) horizontalScroll = Math.max(0, horizontalScroll - columnWidth());
+        }
+    }
+
+    @Override
+    protected void actionPerformed(GuiButton button) {
+        if (button.id == SCROLL_LEFT) horizontalScroll = Math.max(0, horizontalScroll - columnWidth());
         else if (button.id == SCROLL_RIGHT)
             horizontalScroll = Math.min(maxHorizontalScroll(), horizontalScroll + columnWidth());
     }
@@ -94,7 +116,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
 
     private int columnWidth() {
         int count = Math.max(1, columns().size());
-        return Math.max(MIN_COLUMN, Math.min(MAX_COLUMN, (width - 8 - GAP * (count - 1)) / count));
+        return Math.max(MIN_COLUMN, Math.min(MAX_COLUMN, (areaWidth() - GAP * (count - 1)) / count));
     }
 
     private int boardWidth() {
@@ -103,16 +125,29 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     private int maxHorizontalScroll() {
-        return Math.max(0, boardWidth() - (width - 8));
+        return Math.max(0, boardWidth() - areaWidth());
+    }
+
+    /** Columns sit inside the window panel. */
+    private int areaWidth() {
+        return KanbanFrame.contentRight(width) - KanbanFrame.contentLeft();
     }
 
     private int columnLeft(int index) {
-        int offset = boardWidth() <= width - 8 ? (width - boardWidth()) / 2 : 4 - horizontalScroll;
+        int offset = boardWidth() <= areaWidth() ? KanbanFrame.contentLeft() + (areaWidth() - boardWidth()) / 2
+            : KanbanFrame.contentLeft() - horizontalScroll;
         return offset + index * (columnWidth() + GAP);
     }
 
+    /** Only the part of the board inside the panel is visible, so only it takes clicks and drops. */
+    private boolean inBoardArea(int mouseX, int mouseY) {
+        return mouseX >= KanbanFrame.contentLeft() && mouseX < KanbanFrame.contentRight(width)
+            && mouseY >= TOP
+            && mouseY < bottom();
+    }
+
     private int bottom() {
-        return height - 26;
+        return KanbanFrame.contentBottom(height) - 24;
     }
 
     private int cardsTop() {
@@ -163,7 +198,12 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
-        if (mouseButton != 0 || projectId == null || mouseY < TOP || mouseY >= bottom()) return;
+        KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
+        if (tab != null) {
+            tabClicked(tab.id);
+            return;
+        }
+        if (mouseButton != 0 || projectId == null || !inBoardArea(mouseX, mouseY)) return;
         int column = columnAt(mouseX);
         if (column < 0) return;
         BoardColumn target = columns().get(column);
@@ -207,7 +247,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             return;
         }
         int column = columnAt(mouseX);
-        if (column < 0 || mouseY < TOP || mouseY >= bottom()) return;
+        if (column < 0 || !inBoardArea(mouseX, mouseY)) return;
         BoardColumn target = columns().get(column);
         CardView card = KanbanClientState.findCard(cardId);
         if (card != null && !card.getColumnId()
@@ -237,46 +277,43 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
+        rebuildTabs();
+        KanbanFrame.drawWindow(mc, width, height);
+        tabs.draw(mc, mouseX, mouseY);
         BoardSnapshot board = board();
         boolean overflow = maxHorizontalScroll() > 0;
         for (GuiButton button : buttonList) {
             if (button.id == SCROLL_LEFT || button.id == SCROLL_RIGHT) button.visible = overflow;
         }
         horizontalScroll = Math.min(horizontalScroll, maxHorizontalScroll());
-        String title = board == null ? "Loading board..."
-            : board.getProject()
-                .getName();
-        int titleWidth = fontRendererObj.getStringWidth(title);
-        ItemStack projectIcon = board == null ? null
-            : iconStack(
-                board.getProject()
-                    .getIcon());
-        int titleX = width / 2 - titleWidth / 2 + (projectIcon == null ? 0 : 10);
-        if (projectIcon != null) drawItem(projectIcon, titleX - 20, 6);
-        drawString(fontRendererObj, title, titleX, 10, 0xFFFFFF);
-        String result = KanbanClientState.getResultMessage();
-        if (!result.isEmpty()) drawCenteredString(
-            fontRendererObj,
-            fontRendererObj.trimStringToWidth(result, width - 20),
-            width / 2,
-            22,
-            KanbanClientState.isResultSuccess() ? 0x55FF55 : 0xFF5555);
-
         CardView hovered = null;
         List<BoardColumn> columns = columns();
+        KanbanFrame.clip(mc, KanbanFrame.contentLeft(), TOP, areaWidth(), bottom() - TOP);
         for (int index = 0; index < columns.size(); index++) {
             CardView hit = drawColumn(index, columns.get(index), mouseX, mouseY);
-            if (hit != null) hovered = hit;
+            if (hit != null && mouseX >= KanbanFrame.contentLeft() && mouseX < KanbanFrame.contentRight(width))
+                hovered = hit;
         }
+        KanbanFrame.endClip();
         if (draggingCard) drawDragged(columns);
-        if (overflow) drawCenteredString(
+        String result = KanbanClientState.getResultMessage();
+        int statusY = KanbanFrame.contentBottom(height) - 15;
+        if (!result.isEmpty()) drawCenteredString(
+            fontRendererObj,
+            fontRendererObj.trimStringToWidth(result, areaWidth() - 50),
+            width / 2,
+            statusY,
+            KanbanClientState.isResultSuccess() ? 0x55FF55 : 0xFF5555);
+        else if (overflow) drawCenteredString(
             fontRendererObj,
             "Scroll sideways: shift + mouse wheel, or the arrows",
             width / 2,
-            height - 17,
+            statusY,
             0x888888);
         super.drawScreen(mouseX, mouseY, partialTicks);
         if (hovered != null && !draggingCard) drawHoveringText(cardTooltip(hovered), mouseX, mouseY, fontRendererObj);
+        String tabTip = tabs.tooltip(mouseX, mouseY);
+        if (tabTip != null) drawHoveringText(Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
     }
 
     /** @return the card under the mouse, if any */

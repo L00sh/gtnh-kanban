@@ -8,6 +8,7 @@ import org.lwjgl.input.Keyboard;
 
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.message.C2SFetchBoard;
+import com.gtnhkanban.network.message.C2SListProjects;
 
 abstract class GuiKanbanScreen extends GuiScreen {
 
@@ -27,6 +28,20 @@ abstract class GuiKanbanScreen extends GuiScreen {
 
     protected final void goBack() {
         mc.displayGuiScreen(parentScreen);
+    }
+
+    /** Opens the project list: the one this screen was opened from if there is one, otherwise a fresh one. */
+    protected final void openProjects() {
+        for (GuiScreen screen = this; screen
+            != null; screen = screen instanceof GuiKanbanScreen ? ((GuiKanbanScreen) screen).parentScreen : null) {
+            if (screen instanceof GuiProjectList) {
+                mc.displayGuiScreen(screen);
+                KanbanNetwork.CHANNEL.sendToServer(new C2SListProjects());
+                return;
+            }
+        }
+        mc.displayGuiScreen(new GuiProjectList());
+        KanbanNetwork.CHANNEL.sendToServer(new C2SListProjects());
     }
 
     protected final void refreshBoardWhileOpen(UUID projectId) {

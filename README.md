@@ -23,6 +23,10 @@ Open with `/kanban` or the configurable **K** hotkey, including in survival. Pro
 
 Assignments, recipe choices, material trees and manual completion flags are saved with the world. Completing ingredients does not automatically complete their parent item.
 
+## Window art
+
+The board, project and member screens draw a pixel-art window (panel plus folder tabs) from `src/main/resources/assets/gtnhkanban/textures/gui/frame.png`. That atlas is generated from `art/frame-mockup.png` (drawn at 2 image pixels per art pixel); after editing the mockup, regenerate it with `python art/build_frame_atlas.py` (needs Pillow). Hover and pressed tab states are currently lightened/darkened copies of the normal tab; replace those pieces in the script with hand-drawn art to restyle them.
+
 ## Build and install
 
 From this directory:

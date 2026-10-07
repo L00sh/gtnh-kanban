@@ -16,14 +16,16 @@ import com.gtnhkanban.network.message.C2SRemoveMember;
 public final class GuiProjectMembers extends GuiKanbanScreen {
 
     private static final int PAGE_SIZE = 7;
-    private static final int BACK = 1;
     private static final int ADD = 2;
     private static final int PREVIOUS = 3;
     private static final int NEXT = 4;
 
     private final UUID projectId;
+    private static final int TAB_PROJECTS = 10, TAB_BOARD = 11, TAB_MEMBERS = 12, TAB_SETTINGS = 13;
+
     private GuiTextField usernameField;
     private int page;
+    private KanbanFrame.Tabs tabs = new KanbanFrame.Tabs();
 
     public GuiProjectMembers(UUID projectId) {
         this(projectId, null);
@@ -38,23 +40,42 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     @Override
     public void initGui() {
         buttonList.clear();
-        buttonList.add(new GuiButton(BACK, width / 2 - 130, height - 28, 70, 20, "Board"));
-        GuiButton add = new GuiButton(ADD, width / 2 - 55, height - 28, 70, 20, "Add member");
+        GuiButton add = new GuiButton(ADD, width / 2 - 55, height - 40, 70, 20, "Add member");
         BoardSnapshot board = KanbanClientState.getBoard();
         add.enabled = board != null && board.getProject()
             .isActorIsOwner();
         buttonList.add(add);
-        buttonList.add(new GuiButton(PREVIOUS, width / 2 + 20, height - 28, 30, 20, "<"));
-        buttonList.add(new GuiButton(NEXT, width / 2 + 55, height - 28, 30, 20, ">"));
-        usernameField = new GuiTextField(fontRendererObj, width / 2 - 100, height - 58, 200, 20);
+        buttonList.add(new GuiButton(PREVIOUS, width / 2 + 20, height - 40, 30, 20, "<"));
+        buttonList.add(new GuiButton(NEXT, width / 2 + 55, height - 40, 30, 20, ">"));
+        usernameField = new GuiTextField(fontRendererObj, width / 2 - 100, height - 66, 200, 20);
+        rebuildTabs();
         usernameField.setMaxStringLength(16);
+    }
+
+    private void rebuildTabs() {
+        BoardSnapshot board = KanbanClientState.getBoard();
+        boolean ours = board != null && board.getProject()
+            .getId()
+            .equals(projectId);
+        String name = ours ? board.getProject()
+            .getName() : "Board";
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false)
+            .add(
+                TAB_BOARD,
+                fontRendererObj.trimStringToWidth(name, 140),
+                ours ? GuiKanbanBoard.iconStack(
+                    board.getProject()
+                        .getIcon())
+                    : null,
+                false)
+            .add(TAB_MEMBERS, "Members", null, true)
+            .addRight(TAB_SETTINGS, "Board settings", null, true);
+        tabs.layout(fontRendererObj, width);
     }
 
     @Override
     protected void actionPerformed(GuiButton button) {
-        if (button.id == BACK) {
-            goBack();
-        } else if (button.id == ADD && button.enabled) {
+        if (button.id == ADD && button.enabled) {
             KanbanNetwork.CHANNEL.sendToServer(new C2SAddMember(projectId, usernameField.getText()));
         } else if (button.id == PREVIOUS) {
             page = Math.max(0, page - 1);
@@ -66,6 +87,13 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
+        KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
+        if (tab != null) {
+            if (tab.id == TAB_PROJECTS) openProjects();
+            else if (tab.id == TAB_BOARD) goBack();
+            else if (tab.id == TAB_SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
+            return;
+        }
         usernameField.mouseClicked(mouseX, mouseY, mouseButton);
         if (mouseButton != 0 || mouseX < width / 2 - 100 || mouseX > width / 2 + 100) return;
         BoardSnapshot board = KanbanClientState.getBoard();
@@ -94,7 +122,9 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
-        drawCenteredString(fontRendererObj, "Project members", width / 2, 18, 0xFFFFFF);
+        rebuildTabs();
+        KanbanFrame.drawWindow(mc, width, height);
+        tabs.draw(mc, mouseX, mouseY);
         BoardSnapshot board = KanbanClientState.getBoard();
         if (board != null) {
             List<MemberSummary> visible = PagedList.pageItems(board.getMembers(), page, PAGE_SIZE);
@@ -109,13 +139,13 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
                     fontRendererObj,
                     "Username (known server players only)",
                     width / 2 - 100,
-                    height - 72,
+                    height - 80,
                     0xAAAAAA);
                 drawString(
                     fontRendererObj,
                     "Click a member row to remove them",
                     width / 2 - 100,
-                    height - 88,
+                    height - 96,
                     0x888888);
             }
         }
@@ -124,7 +154,7 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
             fontRendererObj,
             result,
             width / 2,
-            35,
+            KanbanFrame.contentTop() + 2,
             KanbanClientState.isResultSuccess() ? 0x55FF55 : 0xFF5555);
         if (board != null && board.getProject()
             .isActorIsOwner()) usernameField.drawTextBox();
@@ -132,9 +162,12 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
             fontRendererObj,
             "Page " + (page + 1) + " / " + (lastPage() + 1),
             width / 2,
-            height - 31,
+            height - 34,
             0xFFFFFF);
         super.drawScreen(mouseX, mouseY, partialTicks);
+        String tabTip = tabs.tooltip(mouseX, mouseY);
+        if (tabTip != null)
+            drawHoveringText(java.util.Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
     }
 
     private int lastPage() {

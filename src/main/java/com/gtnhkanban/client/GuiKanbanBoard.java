@@ -208,6 +208,16 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         return stack.height > viewHeight();
     }
 
+    /** The add-card button sits at the right end of the column header, inside its bevel. */
+    private int addButtonLeft(int column) {
+        return columnLeft(column) + columnWidth(column) - 18;
+    }
+
+    private boolean overAddButton(int column, int mouseX, int mouseY) {
+        int x = addButtonLeft(column);
+        return mouseX >= x && mouseX < x + 16 && mouseY >= TOP + 1 && mouseY < TOP + 17;
+    }
+
     private int columnAt(int mouseX) {
         List<BoardColumn> columns = columns();
         for (int index = 0; index < columns.size(); index++) {
@@ -278,7 +288,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         BoardColumn target = columns().get(column);
         int left = columnLeft(column);
         if (mouseY < TOP + HEADER) {
-            if (mouseX >= left + columnWidth(column) - 16) {
+            if (overAddButton(column, mouseX, mouseY)) {
                 mc.displayGuiScreen(new GuiCardDetail(projectId, null, this, target.getId()));
             }
             return;
@@ -478,12 +488,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             left + 5,
             TOP + 5,
             0xFFFFFF);
-        boolean plusHover = mouseX >= left + width - 16 && mouseX < left + width
-            && mouseY >= TOP
-            && mouseY < TOP + HEADER;
-        // Inside the header's bevel, clear of its bottom shadow.
-        drawRect(left + width - 15, TOP + 3, left + width - 4, TOP + 14, plusHover ? 0xFF557755 : 0xFF334433);
-        drawCenteredString(fontRendererObj, "+", left + width - 9, TOP + 5, 0xFFFFFF);
+        KanbanFrame.addCardButton(mc, addButtonLeft(index), TOP + 1, overAddButton(index, mouseX, mouseY));
 
         CardStack stack = stack(index);
         int scroll = scrollOf(column.getId(), stack);

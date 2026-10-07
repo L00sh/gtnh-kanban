@@ -14,6 +14,7 @@ runtime, so panels and tabs can be any size while staying pixel-exact:
   (80, 32)  tab, purple normal / (96, 32) hover / (112, 32) pressed: the orange set, hue-shifted (Projects tab)
   (96, 0)   column header 9-slice, 17x17, same layout (art/column-header.png, drawn at 1x)
   (0, 64)   priority icons, 16x16 each: low, medium, high (art/priority-*.png, drawn at 1x)
+  (48, 64)  add-card button, 16x16 (art/add-card.png, drawn at 1x); (64, 64) its hover (generated: lightened)
   (64, 32)  cog glyph, 12x12 (11x11 gear plus a 1px drop shadow), transparent background
 
 Usage (from the repository root, needs Pillow):  python art/build_frame_atlas.py
@@ -73,6 +74,9 @@ def main():
     put_nine_slice(atlas, header, (0, 0, header.width - 1, header.height - 1), 96, 0)
     for i, name in enumerate(PRIORITIES):
         atlas.paste(Image.open(ROOT / "art" / ("priority-%s.png" % name)).convert("RGBA"), (16 * i, 64))
+    add = Image.open(ROOT / "art" / "add-card.png").convert("RGBA")
+    atlas.paste(add, (48, 64))
+    atlas.paste(shade(add, 1.25, outline=add.getpixel((1, 0))[:3]), (64, 64))
     selected = three_slice(art, SELECTED_TAB)
     normal = three_slice(art, NORMAL_TAB)
     atlas.paste(selected, (0, 32))

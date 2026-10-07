@@ -270,6 +270,12 @@ final class KanbanFrame {
         nineSlice(96, x, y, width, height);
     }
 
+    /** A column header's 16x16 add-card button at (x, y). */
+    static void addCardButton(Minecraft mc, int x, int y, boolean hover) {
+        bind(mc);
+        quad(x, y, 16, 16, hover ? 64 : 48, 64, 16, 16);
+    }
+
     /** The card border tint that reproduces the art's own grey, for cards without a type. */
     static final int PLAIN_CARD = 0x9A9A9A;
 

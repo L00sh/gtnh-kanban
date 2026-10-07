@@ -110,7 +110,8 @@ public final class S2CBoardSnapshot implements IMessage {
         for (int index = 0; index < cardCount; index++) {
             UUID id = PacketData.readUuid(buffer);
             int number = buffer.readInt();
-            String title = PacketData.readString(buffer, 256);
+            // Up to 255 characters, at most 3 UTF-8 bytes each.
+            String title = PacketData.readString(buffer, 1024);
             String description = PacketData.readString(buffer, 2048);
             UUID column = PacketData.readUuid(buffer);
             UUID type = PacketData.readUuid(buffer);

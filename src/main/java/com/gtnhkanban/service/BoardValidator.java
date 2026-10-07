@@ -3,6 +3,7 @@ package com.gtnhkanban.service;
 public final class BoardValidator {
 
     public static final int MAX_NAME_LENGTH = 64;
+    public static final int MAX_CARD_TITLE_LENGTH = 255;
     public static final int MAX_DESCRIPTION_LENGTH = 512;
     public static final int MAX_TASK_LENGTH = 128;
     public static final int MAX_COMMENT_LENGTH = 512;
@@ -19,7 +20,7 @@ public final class BoardValidator {
     }
 
     public static ValidationResult<String> validateCardTitle(String title) {
-        return validateRequiredLabel(title, "Card title");
+        return validateText(title, "Card title", MAX_CARD_TITLE_LENGTH);
     }
 
     public static ValidationResult<String> validateDescription(String description) {

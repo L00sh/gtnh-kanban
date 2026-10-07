@@ -27,6 +27,7 @@ import com.gtnhkanban.network.message.C2SCreateCard;
 import com.gtnhkanban.network.message.C2SDeleteCard;
 import com.gtnhkanban.network.message.C2SUpdateCard;
 import com.gtnhkanban.planner.RecipePreference;
+import com.gtnhkanban.service.BoardValidator;
 
 public final class GuiCardDetail extends GuiKanbanScreen {
 
@@ -74,7 +75,7 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         panelWidth = Math.min(width - 24, 520);
         panelLeft = (width - panelWidth) / 2;
         titleField = new GuiTextField(fontRendererObj, panelLeft, 19, panelWidth - 24, 18);
-        titleField.setMaxStringLength(64);
+        titleField.setMaxStringLength(BoardValidator.MAX_CARD_TITLE_LENGTH);
         titleField.setText(title);
         titleField.setFocused(cardId == null && !initialized);
         int lines = Math.max(1, Math.min(4, (height - 250) / 18));

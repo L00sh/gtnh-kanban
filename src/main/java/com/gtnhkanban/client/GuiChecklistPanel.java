@@ -20,6 +20,7 @@ import org.lwjgl.input.Keyboard;
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.api.RequirementView;
 import com.gtnhkanban.api.TaskView;
+import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.network.KanbanNetwork;
 import com.gtnhkanban.network.message.C2SDeleteRequirement;
 import com.gtnhkanban.network.message.C2SDeleteTask;
@@ -120,7 +121,18 @@ final class GuiChecklistPanel {
         Map<String, MaterialTotals.Total> kinds = new java.util.LinkedHashMap<String, MaterialTotals.Total>();
         for (MaterialTotals.Total tool : tools) {
             String kind = MaterialDisplay.toolName(tool.material);
-            if (!kinds.containsKey(kind)) kinds.put(kind, tool);
+            MaterialTotals.Total known = kinds.get(kind);
+            if (known == null) {
+                kinds.put(kind, tool);
+                continue;
+            }
+            // Same kind of tool from different materials: one row, listing every use.
+            Map<ItemKey, Long> uses = new java.util.LinkedHashMap<ItemKey, Long>(known.usedFor);
+            for (Map.Entry<ItemKey, Long> use : tool.usedFor.entrySet()) {
+                Long previous = uses.get(use.getKey());
+                uses.put(use.getKey(), previous == null ? use.getValue() : Math.max(previous, use.getValue()));
+            }
+            kinds.put(kind, new MaterialTotals.Total(known.material, Math.max(known.amount, tool.amount), true, uses));
         }
         return new ArrayList<MaterialTotals.Total>(kinds.values());
     }
@@ -325,7 +337,28 @@ final class GuiChecklistPanel {
         if (!row.total.material.isFluid())
             lines.add("Carried or in open container: " + KanbanClientControls.inventoryCount(mc, row.total.material));
         if (row.total.reusable) lines.add("Used by a recipe, not consumed.");
+        addUsedFor(lines, row.total);
         return lines;
+    }
+
+    /** At most this many "used for" lines; the rest are summarised. */
+    private static final int USED_FOR_LINES = 8;
+
+    /** What in this breakdown the material goes into, not every recipe in the game that uses it. */
+    private void addUsedFor(List<String> lines, MaterialTotals.Total total) {
+        if (total.usedFor.isEmpty()) return;
+        lines.add("§7Used for:");
+        int shown = 0;
+        for (Map.Entry<ItemKey, Long> use : total.usedFor.entrySet()) {
+            if (shown == USED_FOR_LINES) {
+                lines.add("§7  +" + (total.usedFor.size() - shown) + " more");
+                break;
+            }
+            String target = use.getKey() == null ? "this card directly" : MaterialDisplay.name(use.getKey());
+            String amount = total.reusable ? "" : " §7x" + use.getValue() + (total.material.isFluid() ? " mB" : "");
+            lines.add("  " + target + amount);
+            shown++;
+        }
     }
 
     void click(int mouseX, int mouseY, int button) {

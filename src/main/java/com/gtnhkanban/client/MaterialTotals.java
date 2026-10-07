@@ -20,12 +20,29 @@ final class MaterialTotals {
         final ItemKey material;
         final long amount;
         final boolean reusable;
+        /**
+         * What in this breakdown uses the material, and how much each needs: the parent rows that consume it, keyed by
+         * their item. A null key means the material is listed directly on the card.
+         */
+        final Map<ItemKey, Long> usedFor;
 
         Total(ItemKey material, long amount, boolean reusable) {
+            this(material, amount, reusable, new LinkedHashMap<ItemKey, Long>());
+        }
+
+        Total(ItemKey material, long amount, boolean reusable, Map<ItemKey, Long> usedFor) {
             this.material = material;
             this.amount = amount;
             this.reusable = reusable;
+            this.usedFor = usedFor;
         }
+    }
+
+    /** Running sums for one material while walking the tree. */
+    private static final class Tally {
+
+        long amount;
+        final Map<ItemKey, Long> usedFor = new LinkedHashMap<ItemKey, Long>();
     }
 
     private MaterialTotals() {}
@@ -41,12 +58,12 @@ final class MaterialTotals {
     }
 
     private static List<Total> totals(List<RequirementView> roots, boolean wantReusable) {
-        Map<ItemKey, Long> consumed = new LinkedHashMap<ItemKey, Long>();
-        Map<ItemKey, Long> reusable = new LinkedHashMap<ItemKey, Long>();
-        for (RequirementView root : roots) collect(root, consumed, reusable);
+        Map<ItemKey, Tally> consumed = new LinkedHashMap<ItemKey, Tally>();
+        Map<ItemKey, Tally> reusable = new LinkedHashMap<ItemKey, Tally>();
+        for (RequirementView root : roots) collect(root, null, consumed, reusable);
         List<Total> totals = new ArrayList<Total>();
-        for (Map.Entry<ItemKey, Long> entry : (wantReusable ? reusable : consumed).entrySet())
-            totals.add(new Total(entry.getKey(), entry.getValue(), wantReusable));
+        for (Map.Entry<ItemKey, Tally> entry : (wantReusable ? reusable : consumed).entrySet())
+            totals.add(new Total(entry.getKey(), entry.getValue().amount, wantReusable, entry.getValue().usedFor));
         return totals;
     }
 
@@ -57,17 +74,29 @@ final class MaterialTotals {
         return false;
     }
 
-    private static void collect(RequirementView row, Map<ItemKey, Long> consumed, Map<ItemKey, Long> reusable) {
+    /** Consumed amounts add up; a reusable input is needed once, at the largest amount any one use asks for. */
+    private static void collect(RequirementView row, ItemKey parent, Map<ItemKey, Tally> consumed,
+        Map<ItemKey, Tally> reusable) {
         if (row.isComplete()) return;
         if (!row.getChildren()
             .isEmpty()) {
-            for (RequirementView child : row.getChildren()) collect(child, consumed, reusable);
+            for (RequirementView child : row.getChildren()) collect(child, row.getItem(), consumed, reusable);
             return;
         }
-        Long previous = (row.isReusable() ? reusable : consumed).get(row.getItem());
+        Map<ItemKey, Tally> target = row.isReusable() ? reusable : consumed;
+        Tally tally = target.get(row.getItem());
+        if (tally == null) {
+            tally = new Tally();
+            target.put(row.getItem(), tally);
+        }
         long amount = row.getQuantity();
+        Long previous = tally.usedFor.get(parent);
         if (row.isReusable()) {
-            reusable.put(row.getItem(), previous == null ? amount : Math.max(previous.longValue(), amount));
-        } else consumed.put(row.getItem(), previous == null ? amount : previous.longValue() + amount);
+            tally.amount = Math.max(tally.amount, amount);
+            tally.usedFor.put(parent, previous == null ? amount : Math.max(previous.longValue(), amount));
+        } else {
+            tally.amount += amount;
+            tally.usedFor.put(parent, previous == null ? amount : previous.longValue() + amount);
+        }
     }
 }

@@ -16,8 +16,8 @@ import com.gtnhkanban.network.message.C2SUploadBreakdown;
 import com.gtnhkanban.network.message.KanbanRequest;
 import com.gtnhkanban.network.message.RecipeTreeCodec;
 import com.gtnhkanban.planner.BreakdownPlanner;
-import com.gtnhkanban.planner.BreakdownStrategy;
 import com.gtnhkanban.planner.CachingRecipeSource;
+import com.gtnhkanban.planner.RecipePreference;
 import com.gtnhkanban.service.KanbanService;
 
 import cpw.mods.fml.common.FMLLog;
@@ -38,7 +38,7 @@ public final class BreakdownJobs {
     private static final ArrayDeque<Job> QUEUE = new ArrayDeque<Job>();
     /** Recipes and material classes shared by every breakdown this session; cleared when leaving a world. */
     private static final CachingRecipeSource RECIPES = new CachingRecipeSource(new NeiRecipeSource(), 4000);
-    private static BreakdownStrategy strategy = BreakdownStrategy.CRAFTING_TABLE;
+    private static RecipePreference preference = RecipePreference.CRAFTING_TABLE;
     private static int nextUploadId;
     private static String notice = "";
 
@@ -79,12 +79,12 @@ public final class BreakdownJobs {
 
     private BreakdownJobs() {}
 
-    static BreakdownStrategy getStrategy() {
-        return strategy;
+    static RecipePreference getPreference() {
+        return preference;
     }
 
-    static void setStrategy(BreakdownStrategy value) {
-        strategy = value;
+    static void setPreference(RecipePreference value) {
+        preference = value == null ? RecipePreference.CRAFTING_TABLE : value;
     }
 
     /** Adds {@code item} to the card with its full breakdown, or plainly when it has nothing to break down. */
@@ -158,7 +158,7 @@ public final class BreakdownJobs {
         CardView card = KanbanClientState.findCard(job.cardId);
         int rows = card == null ? 0 : rowCount(card.getRequirements());
         if (job.entryId == null) {
-            job.planner = new BreakdownPlanner(job.item, strategy, 1, KanbanService.MAX_CARD_ROWS - rows - 1);
+            job.planner = new BreakdownPlanner(job.item, preference, 1, KanbanService.MAX_CARD_ROWS - rows - 1);
             return true;
         }
         RequirementView row = KanbanClientState.findRequirement(job.cardId, job.entryId);
@@ -171,7 +171,7 @@ public final class BreakdownJobs {
         List<ItemKey> ancestors = new ArrayList<ItemKey>();
         for (RequirementView root : card.getRequirements()) if (findPath(root, job.entryId, ancestors)) break;
         int budget = KanbanService.MAX_CARD_ROWS - rows + rowCount(row.getChildren());
-        job.planner = new BreakdownPlanner(job.item, strategy, ancestors.size() + 1, budget, ancestors);
+        job.planner = new BreakdownPlanner(job.item, preference, ancestors.size() + 1, budget, ancestors);
         return true;
     }
 
@@ -219,7 +219,7 @@ public final class BreakdownJobs {
         FMLLog.info(
             "GTNH Kanban breakdown of %s (%s): %d rows, %d recipe lookups%s; session cache %d items, %d hits, %d misses",
             name,
-            strategy.getLabel(),
+            preference.label(),
             tree == null ? 0 : tree.nodeCount(),
             job.planner.lookups(),
             job.planner.isTruncated() ? ", partial" : "",

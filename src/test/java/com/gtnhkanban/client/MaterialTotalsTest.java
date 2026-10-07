@@ -54,6 +54,45 @@ public class MaterialTotalsTest {
     }
 
     @Test
+    public void eachMaterialRemembersWhatInTheBreakdownUsesIt() {
+        RequirementView plates = row("gregtech:plate", 2, false, false, leaf(INGOT, 4, false, false));
+        RequirementView rods = row(
+            "gregtech:rod",
+            1,
+            false,
+            false,
+            leaf(INGOT, 1, false, false),
+            leaf(HAMMER, 1, true, false));
+        RequirementView casing = row(
+            "gregtech:casing",
+            1,
+            false,
+            false,
+            leaf(INGOT, 3, false, false),
+            leaf(HAMMER, 1, true, false));
+        List<RequirementView> roots = Arrays
+            .asList(row("gregtech:machine", 1, false, false, plates, rods), casing, leaf(DUST, 5, false, false));
+
+        MaterialTotals.Total ingots = MaterialTotals.of(roots)
+            .get(0);
+        MaterialTotals.Total dust = MaterialTotals.of(roots)
+            .get(1);
+        MaterialTotals.Total hammer = MaterialTotals.tools(roots)
+            .get(0);
+
+        assertEquals(8, ingots.amount);
+        assertEquals(3, ingots.usedFor.size());
+        assertEquals(Long.valueOf(4), ingots.usedFor.get(new ItemKey("gregtech:plate", 0)));
+        assertEquals(Long.valueOf(1), ingots.usedFor.get(new ItemKey("gregtech:rod", 0)));
+        assertEquals(Long.valueOf(3), ingots.usedFor.get(new ItemKey("gregtech:casing", 0)));
+        assertFalse(
+            "Only direct uses, not the machine further up",
+            ingots.usedFor.containsKey(new ItemKey("gregtech:machine", 0)));
+        assertTrue("Listed straight on the card", dust.usedFor.containsKey(null));
+        assertEquals(2, hammer.usedFor.size());
+    }
+
+    @Test
     public void completedRowsNeedNothingBelowThem() {
         RequirementView donePlates = row("gregtech:plate", 2, false, true, leaf(INGOT, 4, false, false));
         RequirementView doneDust = leaf(DUST, 2, false, true);

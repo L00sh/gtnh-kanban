@@ -29,19 +29,14 @@ public final class BreakdownPlanner {
     /** Deepest checklist level the server accepts; root checklist rows are level 1. */
     public static final int MAX_LEVEL = 16;
     static final int MAX_LOOKUPS = 3000;
-    /** "Cheapest" compares every recipe this many levels down before settling on crafting-table order. */
-    static final int CHEAPEST_EXPLORE_LEVELS = 6;
-    static final int CHEAPEST_EXPLORE_LOOKUPS = 500;
-    private static final double FLUID_UNIT_COST = 1.0 / 144;
 
     private final ItemKey root;
-    private final BreakdownStrategy strategy;
+    private final RecipePreference preference;
     private final int rootLevel;
     private final int nodeBudget;
     private final List<ItemKey> ancestors;
     private final Map<ItemKey, Entry> entries = new HashMap<ItemKey, Entry>();
     private final ArrayDeque<Pending> queue = new ArrayDeque<Pending>();
-    private final Map<ItemKey, Double> costs = new HashMap<ItemKey, Double>();
     private final Map<ItemKey, String> stops = new LinkedHashMap<ItemKey, String>();
     private boolean started, finished, truncated;
     private int lookups;
@@ -51,15 +46,15 @@ public final class BreakdownPlanner {
      * @param rootLevel  checklist level of the row being broken down (1 for a top-level item)
      * @param nodeBudget how many rows the breakdown may add to the card
      */
-    public BreakdownPlanner(ItemKey root, BreakdownStrategy strategy, int rootLevel, int nodeBudget) {
-        this(root, strategy, rootLevel, nodeBudget, Collections.<ItemKey>emptyList());
+    public BreakdownPlanner(ItemKey root, RecipePreference preference, int rootLevel, int nodeBudget) {
+        this(root, preference, rootLevel, nodeBudget, Collections.<ItemKey>emptyList());
     }
 
     /** @param ancestors materials of the rows above {@code root}, which no recipe in the breakdown may consume */
-    public BreakdownPlanner(ItemKey root, BreakdownStrategy strategy, int rootLevel, int nodeBudget,
+    public BreakdownPlanner(ItemKey root, RecipePreference preference, int rootLevel, int nodeBudget,
         List<ItemKey> ancestors) {
         this.root = root;
-        this.strategy = strategy;
+        this.preference = preference == null ? RecipePreference.CRAFTING_TABLE : preference;
         this.rootLevel = rootLevel;
         this.nodeBudget = nodeBudget;
         this.ancestors = new ArrayList<ItemKey>(ancestors);
@@ -69,12 +64,10 @@ public final class BreakdownPlanner {
 
         final ItemKey material;
         final int level;
-        final boolean explore;
 
-        Pending(ItemKey material, int level, boolean explore) {
+        Pending(ItemKey material, int level) {
             this.material = material;
             this.level = level;
-            this.explore = explore;
         }
     }
 
@@ -93,7 +86,6 @@ public final class BreakdownPlanner {
     private static final class Entry {
 
         final List<Option> options;
-        boolean explored;
         RecipePlan chosen;
 
         Entry(List<Option> options) {
@@ -110,7 +102,7 @@ public final class BreakdownPlanner {
         if (finished) return true;
         if (!started) {
             started = true;
-            queue.add(new Pending(root, 0, strategy == BreakdownStrategy.CHEAPEST));
+            queue.add(new Pending(root, 0));
         }
         boolean worked = false;
         while (!queue.isEmpty()) {
@@ -149,14 +141,7 @@ public final class BreakdownPlanner {
 
     private boolean visit(RecipeSource source, Pending pending) {
         ItemKey material = pending.material;
-        Entry known = entries.get(material);
-        if (known != null) {
-            if (pending.explore && !known.explored && !known.options.isEmpty()) {
-                known.explored = true;
-                enqueueIngredients(source, known, pending.level, true);
-            }
-            return false;
-        }
+        if (entries.containsKey(material)) return false;
         if (isLeafMaterial(source, material)) {
             if (source.isOre(material)) stops.put(material, "ore");
             entries.put(material, new Entry(Collections.<Option>emptyList()));
@@ -184,20 +169,18 @@ public final class BreakdownPlanner {
                     : "every recipe needs ore or itself (" + candidates.size() + " recipes)");
             return true;
         }
-        entry.explored = pending.explore && pending.level < CHEAPEST_EXPLORE_LEVELS
-            && lookups <= CHEAPEST_EXPLORE_LOOKUPS;
-        enqueueIngredients(source, entry, pending.level, entry.explored);
+        enqueueIngredients(source, entry, pending.level);
         return true;
     }
 
-    private void enqueueIngredients(RecipeSource source, Entry entry, int level, boolean explore) {
+    /** Queues the ingredients of the recipe that will be used: the best-ranked one. */
+    private void enqueueIngredients(RecipeSource source, Entry entry, int level) {
         // Ingredients sit one level below; only those still above the depth limit can be expanded further.
         boolean tooDeep = rootLevel + level + 2 > MAX_LEVEL;
-        List<Option> options = explore ? entry.options : entry.options.subList(0, 1);
-        for (Option option : options) for (List<RecipeIngredient> slot : option.slots) {
+        for (List<RecipeIngredient> slot : entry.options.get(0).slots) {
             RecipeIngredient first = slot.get(0);
             if (first.isReusable()) continue;
-            if (!tooDeep) queue.add(new Pending(first.getMaterial(), level + 1, explore));
+            if (!tooDeep) queue.add(new Pending(first.getMaterial(), level + 1));
             else if (!isLeafMaterial(source, first.getMaterial())) truncated = true;
         }
     }
@@ -232,16 +215,17 @@ public final class BreakdownPlanner {
         return options;
     }
 
-    /** Stable sort, so equally ranked recipes keep the recipe viewer's order. */
+    /**
+     * Stable sort, so equally ranked recipes keep the recipe viewer's order: the preferred recipe type first, then
+     * crafting table, GregTech machines from the lowest voltage up, furnace, and anything else.
+     */
     private List<Option> rank(List<Option> options) {
-        final BreakdownStrategy order = strategy == BreakdownStrategy.LOW_VOLTAGE ? BreakdownStrategy.LOW_VOLTAGE
-            : BreakdownStrategy.CRAFTING_TABLE;
         List<Option> ranked = new ArrayList<Option>(options);
         Collections.sort(ranked, new Comparator<Option>() {
 
             @Override
             public int compare(Option first, Option second) {
-                int byKind = Integer.compare(kindRank(order, first.candidate), kindRank(order, second.candidate));
+                int byKind = Integer.compare(rankOf(first.candidate), rankOf(second.candidate));
                 if (byKind != 0) return byKind;
                 return Long.compare(voltage(first.candidate), voltage(second.candidate));
             }
@@ -249,16 +233,17 @@ public final class BreakdownPlanner {
         return ranked;
     }
 
-    private static int kindRank(BreakdownStrategy order, RecipeCandidate candidate) {
+    private int rankOf(RecipeCandidate candidate) {
+        if (preference.prefers(candidate)) return 0;
         switch (candidate.getKind()) {
             case CRAFTING_TABLE:
-                return order == BreakdownStrategy.LOW_VOLTAGE ? 1 : 0;
+                return 1;
             case GT_MACHINE:
-                return order == BreakdownStrategy.LOW_VOLTAGE ? 0 : 2;
+                return 2;
             case FURNACE:
-                return order == BreakdownStrategy.LOW_VOLTAGE ? 2 : 1;
-            default:
                 return 3;
+            default:
+                return 4;
         }
     }
 
@@ -271,9 +256,7 @@ public final class BreakdownPlanner {
             Entry entry = known.getValue();
             if (entry.options.isEmpty()) continue;
             try {
-                if (strategy == BreakdownStrategy.CHEAPEST && entry.explored) {
-                    unitCost(known.getKey(), new HashSet<ItemKey>());
-                } else entry.chosen = plan(entry.options.get(0), firstAlternatives(entry.options.get(0)));
+                entry.chosen = plan(entry.options.get(0), firstAlternatives(entry.options.get(0)));
             } catch (IllegalArgumentException exception) {
                 entry.chosen = null;
             }
@@ -282,52 +265,6 @@ public final class BreakdownPlanner {
 
     private static int[] firstAlternatives(Option option) {
         return new int[option.slots.size()];
-    }
-
-    /** Estimated base-material count per unit of {@code material}; also records the cheapest plan. */
-    private double unitCost(ItemKey material, Set<ItemKey> inProgress) {
-        Double memo = costs.get(material);
-        if (memo != null) return memo.doubleValue();
-        double leaf = material.isFluid() ? FLUID_UNIT_COST : 1;
-        Entry entry = entries.get(material);
-        if (entry == null || entry.options.isEmpty() || !inProgress.add(material)) return leaf;
-        List<Option> options = entry.explored ? entry.options : entry.options.subList(0, 1);
-        double best = Double.POSITIVE_INFINITY;
-        RecipePlan bestPlan = null;
-        for (Option option : options) {
-            int[] selection = new int[option.slots.size()];
-            double total = 0;
-            for (int slot = 0; slot < option.slots.size(); slot++) {
-                List<RecipeIngredient> alternatives = option.slots.get(slot);
-                double slotCost = Double.POSITIVE_INFINITY;
-                for (int index = 0; index < alternatives.size(); index++) {
-                    RecipeIngredient alternative = alternatives.get(index);
-                    // Unlooked-up alternatives would look artificially cheap, so only the first one counts unseen.
-                    if (index > 0 && !entries.containsKey(alternative.getMaterial())) continue;
-                    double cost = alternative.isReusable() ? 0
-                        : alternative.getAmount() * unitCost(alternative.getMaterial(), inProgress);
-                    if (cost < slotCost) {
-                        slotCost = cost;
-                        selection[slot] = index;
-                    }
-                }
-                total += slotCost;
-            }
-            total /= option.candidate.getOutput();
-            if (total < best) {
-                try {
-                    bestPlan = plan(option, selection);
-                    best = total;
-                } catch (IllegalArgumentException exception) {
-                    // Amounts too large for a checklist; try the next recipe.
-                }
-            }
-        }
-        inProgress.remove(material);
-        if (bestPlan == null) return leaf;
-        entry.chosen = bestPlan;
-        costs.put(material, best);
-        return best;
     }
 
     /** Builds a plan from the chosen alternatives, merging repeated materials as a recipe viewer would. */

@@ -20,10 +20,23 @@ import com.gtnhkanban.planner.RecipeSource;
  */
 final class NeiRecipeSource implements RecipeSource {
 
-    /** Breakdowns stop here: smelted or mined forms, never the ore processing that produces them. */
-    private static final String[] BASE_PREFIXES = { "ingot", "nugget", "gem", "dust", "crystal", "cell" };
+    /**
+     * Breakdowns stop here: smelted or mined forms, never the ore processing that produces them. Logs, saplings and
+     * seeds are needed as they are, like buckets: their only "recipes" are growing them (a sapling or seed in a
+     * greenhouse or crop machine), which is not a material cost.
+     */
+    private static final String[] BASE_PREFIXES = { "ingot", "nugget", "gem", "dust", "crystal", "cell", "log",
+        "seed" };
     private static final Set<String> BASE_NAMES = new HashSet<String>(
-        Arrays.asList("sand", "gravel", "cobblestone", "stone", "blockGlass", "blockGlassColorless"));
+        Arrays.asList(
+            "sand",
+            "gravel",
+            "cobblestone",
+            "stone",
+            "blockGlass",
+            "blockGlassColorless",
+            "treeSapling",
+            "treeLeaves"));
     private static final String[] ORE_PREFIXES = { "ore", "rawOre", "crushed", "dustImpure", "dustPure", "cluster" };
 
     /** Why the most recent {@link #recipes} call rejected recipes; read right after it by the cache. */

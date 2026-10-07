@@ -26,18 +26,20 @@ import com.gtnhkanban.network.message.C2SAddTask;
 import com.gtnhkanban.network.message.C2SCreateCard;
 import com.gtnhkanban.network.message.C2SDeleteCard;
 import com.gtnhkanban.network.message.C2SUpdateCard;
+import com.gtnhkanban.planner.RecipePreference;
 
 public final class GuiCardDetail extends GuiKanbanScreen {
 
-    private static final int SAVE = 1, BACK = 2, ADD_REQUIREMENT = 4, PIN = 5, DELETE = 6, ASSIGNEES = 7, STRATEGY = 8,
-        REGENERATE = 9, TYPE = 10, PRIORITY = 11, COLUMN = 12, ICON = 13, COMMENTS = 14, ADD_TASK = 15;
+    private static final int SAVE = 1, BACK = 2, ADD_REQUIREMENT = 4, PIN = 5, DELETE = 6, ASSIGNEES = 7,
+        REGENERATE = 9, ICON = 13, COMMENTS = 14, ADD_TASK = 15;
     private final UUID projectId, cardId;
     private final GuiScreen boardScreen;
     private final RenderItem render = new RenderItem();
     private GuiTextField titleField, taskField;
     private GuiMultilineEditor descriptionEditor;
     private GuiChecklistPanel checklist;
-    private int panelLeft, panelWidth, editorBottom;
+    private int panelLeft, panelWidth, editorBottom, strategyRow;
+    private final List<GuiDropdown> dropdowns = new ArrayList<GuiDropdown>();
 
     // Edited locally and sent on Save, like the title.
     private boolean loaded;
@@ -84,9 +86,6 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         buttonList.clear();
         buttonList.add(new GuiButton(ICON, panelLeft + panelWidth - 20, 18, 20, 20, ""));
         int third = (panelWidth - 8) / 3;
-        buttonList.add(new GuiButton(TYPE, panelLeft, 41, third, 20, ""));
-        buttonList.add(new GuiButton(PRIORITY, panelLeft + third + 4, 41, third, 20, ""));
-        buttonList.add(new GuiButton(COLUMN, panelLeft + 2 * (third + 4), 41, panelWidth - 2 * (third + 4), 20, ""));
         buttonList.add(new GuiButton(SAVE, width / 2 - 150, height - 53, 65, 20, cardId == null ? "Create" : "Save"));
         buttonList.add(new GuiButton(BACK, width / 2 - 80, height - 53, 65, 20, "Board"));
         if (cardId != null) {
@@ -100,8 +99,7 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             buttonList.add(new GuiButton(ADD_REQUIREMENT, panelLeft, row, 70, 20, "Add item"));
             buttonList.add(new GuiButton(ASSIGNEES, panelLeft + 74, row, 70, 20, "Assignees"));
             buttonList.add(new GuiButton(COMMENTS, panelLeft + 148, row, 85, 20, "Comments"));
-            buttonList.add(
-                new GuiButton(STRATEGY, panelLeft + 237, row, Math.max(60, panelWidth - 237), 20, strategyLabel()));
+            strategyRow = row;
             checklist = new GuiChecklistPanel(
                 mc,
                 projectId,
@@ -118,7 +116,118 @@ public final class GuiCardDetail extends GuiKanbanScreen {
                     }
                 });
         }
+        buildDropdowns();
         refreshButtons();
+    }
+
+    /**
+     * Type, priority and column dropdowns under the title, and (for saved cards) the breakdown recipe preference.
+     * Rebuilt whenever the card's fields are (re)loaded so their selections match.
+     */
+    private void buildDropdowns() {
+        dropdowns.clear();
+        final BoardSettings settings = settings();
+        int third = (panelWidth - 8) / 3;
+
+        final List<CardType> types = settings.getTypes();
+        List<String> typeNames = new ArrayList<String>();
+        typeNames.add("None");
+        int typeIndex = 0;
+        for (int i = 0; i < types.size(); i++) {
+            typeNames.add(
+                types.get(i)
+                    .getName());
+            if (types.get(i)
+                .getId()
+                .equals(typeId)) typeIndex = i + 1;
+        }
+        dropdowns.add(new GuiDropdown(panelLeft, 41, third, "Type", typeNames, typeIndex, new GuiDropdown.Choice() {
+
+            @Override
+            public void chosen(int index) {
+                typeId = index == 0 ? null
+                    : types.get(index - 1)
+                        .getId();
+            }
+        }));
+
+        List<String> priorities = new ArrayList<String>();
+        for (Priority value : Priority.values()) priorities.add(value.getLabel());
+        dropdowns.add(
+            new GuiDropdown(
+                panelLeft + third + 4,
+                41,
+                third,
+                "Priority",
+                priorities,
+                priority.ordinal(),
+                new GuiDropdown.Choice() {
+
+                    @Override
+                    public void chosen(int index) {
+                        priority = Priority.values()[index];
+                    }
+                }));
+
+        final List<BoardColumn> columns = settings.getColumns();
+        List<String> columnNames = new ArrayList<String>();
+        UUID current = columnId == null ? settings.firstColumn() : columnId;
+        int columnIndex = 0;
+        for (int i = 0; i < columns.size(); i++) {
+            columnNames.add(
+                columns.get(i)
+                    .getName());
+            if (columns.get(i)
+                .getId()
+                .equals(current)) columnIndex = i;
+        }
+        dropdowns.add(
+            new GuiDropdown(
+                panelLeft + 2 * (third + 4),
+                41,
+                panelWidth - 2 * (third + 4),
+                "Column",
+                columnNames,
+                columnIndex,
+                new GuiDropdown.Choice() {
+
+                    @Override
+                    public void chosen(int index) {
+                        columnId = columns.get(index)
+                            .getId();
+                    }
+                }));
+
+        if (cardId != null) {
+            final List<String> recipeTypes = new ArrayList<String>();
+            recipeTypes.add("Crafting table (default)");
+            recipeTypes.addAll(NeiRecipeTypes.names());
+            String preferred = BreakdownJobs.getPreference()
+                .getRecipeType();
+            int recipeIndex = preferred == null ? 0 : Math.max(0, recipeTypes.indexOf(preferred));
+            dropdowns.add(
+                new GuiDropdown(
+                    panelLeft + 237,
+                    strategyRow,
+                    Math.max(60, panelWidth - 237),
+                    "Recipe",
+                    recipeTypes,
+                    recipeIndex,
+                    new GuiDropdown.Choice() {
+
+                        @Override
+                        public void chosen(int index) {
+                            BreakdownJobs.setPreference(
+                                index == 0 ? RecipePreference.CRAFTING_TABLE
+                                    : RecipePreference.of(recipeTypes.get(index)));
+                        }
+                    }));
+        }
+    }
+
+    private GuiDropdown openDropdown() {
+        for (GuiDropdown dropdown : dropdowns) if (dropdown.isOpen()) return dropdown;
+        return null;
     }
 
     /** Fills the editable fields from the card once it is known, so Save never overwrites it with defaults. */
@@ -135,6 +244,7 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         priority = card.getPriority();
         icon = card.getIcon();
         loaded = true;
+        buildDropdowns();
     }
 
     private void refreshButtons() {
@@ -148,13 +258,6 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             } else if (button.id == REGENERATE) {
                 button.enabled = card != null && !card.getRequirements()
                     .isEmpty() && !BreakdownJobs.isBusy(cardId);
-            } else if (button.id == TYPE) {
-                CardType type = findType(settings, typeId);
-                button.displayString = "Type: " + (type == null ? "None" : type.getName());
-            } else if (button.id == PRIORITY) {
-                button.displayString = "Priority: " + priority.getLabel();
-            } else if (button.id == COLUMN) {
-                button.displayString = "Column: " + columnName(settings);
             } else if (button.id == COMMENTS) {
                 button.displayString = "Comments (" + (card == null ? 0
                     : card.getComments()
@@ -176,9 +279,6 @@ public final class GuiCardDetail extends GuiKanbanScreen {
                 new C2SUpdateCard(projectId, cardId, title, description, columnId, typeId, priority, icon));
             mc.displayGuiScreen(boardScreen == null ? new GuiKanbanBoard(projectId) : boardScreen);
         } else if (button.id == BACK) goBack();
-        else if (button.id == TYPE) typeId = nextType(settings);
-        else if (button.id == PRIORITY) priority = priority.next();
-        else if (button.id == COLUMN) columnId = nextColumn(settings);
         else if (button.id == ICON) {
             mc.displayGuiScreen(new GuiItemPicker(this, "Choose a card icon", new GuiItemPicker.IconChoice() {
 
@@ -207,12 +307,6 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         else if (button.id == ASSIGNEES) mc.displayGuiScreen(new GuiCardAssignees(projectId, cardId, this));
         else if (button.id == COMMENTS) mc.displayGuiScreen(new GuiCardComments(projectId, cardId, this));
         else if (button.id == REGENERATE) BreakdownJobs.regenerateAll(projectId, cardId);
-        else if (button.id == STRATEGY) {
-            BreakdownJobs.setStrategy(
-                BreakdownJobs.getStrategy()
-                    .next());
-            button.displayString = strategyLabel();
-        }
         refreshButtons();
     }
 
@@ -222,43 +316,6 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         if (text.isEmpty()) return;
         KanbanNetwork.CHANNEL.sendToServer(new C2SAddTask(projectId, cardId, text));
         taskField.setText("");
-    }
-
-    private UUID nextType(BoardSettings settings) {
-        List<CardType> types = settings.getTypes();
-        if (types.isEmpty()) return null;
-        for (int i = 0; i < types.size(); i++) if (types.get(i)
-            .getId()
-            .equals(typeId))
-            return i + 1 < types.size() ? types.get(i + 1)
-                .getId() : null;
-        return types.get(0)
-            .getId();
-    }
-
-    private UUID nextColumn(BoardSettings settings) {
-        List<BoardColumn> columns = settings.getColumns();
-        UUID current = columnId == null ? settings.firstColumn() : columnId;
-        for (int i = 0; i < columns.size(); i++) if (columns.get(i)
-            .getId()
-            .equals(current))
-            return columns.get((i + 1) % columns.size())
-                .getId();
-        return settings.firstColumn();
-    }
-
-    private String columnName(BoardSettings settings) {
-        UUID current = columnId == null ? settings.firstColumn() : columnId;
-        for (BoardColumn column : settings.getColumns()) if (column.getId()
-            .equals(current)) return column.getName();
-        return "?";
-    }
-
-    private static CardType findType(BoardSettings settings, UUID id) {
-        if (id == null) return null;
-        for (CardType type : settings.getTypes()) if (type.getId()
-            .equals(id)) return type;
-        return null;
     }
 
     private BoardSettings settings() {
@@ -278,6 +335,13 @@ public final class GuiCardDetail extends GuiKanbanScreen {
 
     @Override
     protected void mouseClicked(int x, int y, int button) {
+        // An open list sits on top of everything, so it gets the click first; so does a dropdown being opened.
+        GuiDropdown open = openDropdown();
+        if (open != null) {
+            open.mouseClicked(x, y, button, height);
+            return;
+        }
+        for (GuiDropdown dropdown : dropdowns) if (dropdown.mouseClicked(x, y, button, height)) return;
         super.mouseClicked(x, y, button);
         titleField.mouseClicked(x, y, button);
         if (taskField != null) taskField.mouseClicked(x, y, button);
@@ -288,6 +352,11 @@ public final class GuiCardDetail extends GuiKanbanScreen {
     @Override
     public void handleMouseInput() {
         super.handleMouseInput();
+        GuiDropdown open = openDropdown();
+        if (open != null) {
+            open.scrolled(Mouse.getEventDWheel());
+            return;
+        }
         if (checklist != null) checklist.scroll(
             Mouse.getEventDWheel(),
             Mouse.getEventX() * width / mc.displayWidth,
@@ -296,6 +365,8 @@ public final class GuiCardDetail extends GuiKanbanScreen {
 
     @Override
     protected void keyTyped(char c, int key) {
+        GuiDropdown open = openDropdown();
+        if (open != null && open.keyTyped(c, key)) return;
         if (handleEscape(key)) return;
         if (taskField != null && taskField.isFocused()) {
             if (key == Keyboard.KEY_RETURN || key == Keyboard.KEY_NUMPADENTER) addTask();
@@ -362,6 +433,9 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             height - 70,
             KanbanClientState.isResultSuccess() ? 0x55FF55 : 0xFF5555);
         super.drawScreen(x, y, partialTicks);
+        GuiDropdown open = openDropdown();
+        int buttonMouseX = open == null ? x : -1;
+        for (GuiDropdown dropdown : dropdowns) dropdown.draw(mc, buttonMouseX, y);
         ItemStack iconStack = GuiKanbanBoard.iconStack(icon);
         if (iconStack != null) {
             render.renderItemAndEffectIntoGUI(
@@ -383,11 +457,10 @@ public final class GuiCardDetail extends GuiKanbanScreen {
             tooltip = new ArrayList<String>();
             tooltip.add(icon == null ? "Choose a card icon" : "Icon: " + MaterialDisplay.name(icon));
         }
+        if (open != null) {
+            open.drawOverlay(mc, x, y, height);
+            return;
+        }
         if (!tooltip.isEmpty()) drawHoveringText(tooltip, x, y, fontRendererObj);
-    }
-
-    private static String strategyLabel() {
-        return "Breakdown: " + BreakdownJobs.getStrategy()
-            .getLabel();
     }
 }

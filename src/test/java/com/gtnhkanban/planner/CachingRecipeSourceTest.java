@@ -53,9 +53,10 @@ public class CachingRecipeSourceTest {
     }
 
     @Test
-    public void cachedResultsMatchUncachedOnesForEveryStrategy() {
+    public void cachedResultsMatchUncachedOnesForEveryPreference() {
         CachingRecipeSource cache = new CachingRecipeSource(source, 100);
-        for (BreakdownStrategy strategy : BreakdownStrategy.values()) {
+        for (RecipePreference strategy : new RecipePreference[] { RecipePreference.CRAFTING_TABLE,
+            RecipePreference.of("Craft") }) {
             BreakdownPlanner direct = new BreakdownPlanner(HULL, strategy, 1, 4096);
             direct.step(source, Long.MAX_VALUE);
             BreakdownPlanner cached = new BreakdownPlanner(HULL, strategy, 1, 4096);
@@ -119,7 +120,7 @@ public class CachingRecipeSourceTest {
     }
 
     private static void plan(ItemKey root, RecipeSource recipes) {
-        assertTrue(new BreakdownPlanner(root, BreakdownStrategy.CRAFTING_TABLE, 1, 4096).step(recipes, Long.MAX_VALUE));
+        assertTrue(new BreakdownPlanner(root, RecipePreference.CRAFTING_TABLE, 1, 4096).step(recipes, Long.MAX_VALUE));
     }
 
     private static ItemKey item(String name) {

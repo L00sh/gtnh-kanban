@@ -65,7 +65,7 @@ public class BreakdownPlannerTest {
 
     @Test
     public void craftingTableFirstBreaksEverythingDownToBaseMaterials() {
-        RecipeTree tree = plan(BreakdownStrategy.CRAFTING_TABLE);
+        RecipeTree tree = plan(RecipePreference.CRAFTING_TABLE);
 
         assertEquals(
             "Shaped Crafting",
@@ -81,7 +81,7 @@ public class BreakdownPlannerTest {
 
     @Test
     public void quantitiesScaleWithWholeRecipeBatches() {
-        Map<ItemKey, Long> totals = totals(plan(BreakdownStrategy.CRAFTING_TABLE), 3);
+        Map<ItemKey, Long> totals = totals(plan(RecipePreference.CRAFTING_TABLE), 3);
 
         // 3 machines: 6 plates x 2 ingots; 3 circuits: 3 boards x 2 dust, 6 wires at 2 per tin ingot.
         assertEquals(Long.valueOf(12), totals.get(INGOT));
@@ -91,30 +91,29 @@ public class BreakdownPlannerTest {
     }
 
     @Test
-    public void lowestVoltagePrefersCheapMachinesButNeverOreRecipes() {
-        RecipeTree tree = plan(BreakdownStrategy.LOW_VOLTAGE);
+    public void aPreferredRecipeTypeIsUsedWhereverItExists() {
+        RecipeTree tree = plan(RecipePreference.of("assembler"));
 
         assertEquals(
             "Assembler",
             tree.getPlan()
                 .getName());
+        // Plates have no assembler recipe, so they fall back to the crafting table.
         assertEquals(
-            "Forge Hammer",
+            "Shaped Crafting",
             tree.getChildren()
                 .get(0)
                 .getPlan()
                 .getName());
         Map<ItemKey, Long> totals = totals(tree, 1);
-        assertEquals(Long.valueOf(3), totals.get(INGOT));
+        assertEquals(Long.valueOf(2), totals.get(INGOT));
         assertEquals(Long.valueOf(1000), totals.get(STEAM));
-        assertFalse(totals.containsKey(ORE));
     }
 
     @Test
-    public void cheapestPicksTheRecipeNeedingTheFewestBaseMaterials() {
-        RecipeTree tree = plan(BreakdownStrategy.CHEAPEST);
+    public void preferringAMachineChangesOnlyTheItemsItMakes() {
+        RecipeTree tree = plan(RecipePreference.of("Bender"));
 
-        // Hand crafting (2 plates, no steam) beats the assembler once 1000 mB of steam is costed in.
         assertEquals(
             "Shaped Crafting",
             tree.getPlan()
@@ -129,10 +128,22 @@ public class BreakdownPlannerTest {
     }
 
     @Test
+    public void aPreferredRecipeThatNeedsOreIsStillRefused() {
+        RecipeTree tree = plan(RecipePreference.of("Ore Smasher"));
+
+        assertEquals(
+            "Shaped Crafting",
+            tree.getChildren()
+                .get(0)
+                .getPlan()
+                .getName());
+        assertFalse(totals(tree, 1).containsKey(ORE));
+    }
+
+    @Test
     public void neverLooksUpBaseMaterialsFluidsOresOrReusableTools() {
-        plan(BreakdownStrategy.CRAFTING_TABLE);
-        plan(BreakdownStrategy.LOW_VOLTAGE);
-        plan(BreakdownStrategy.CHEAPEST);
+        plan(RecipePreference.CRAFTING_TABLE);
+        plan(RecipePreference.of("Assembler"));
 
         for (ItemKey never : Arrays.asList(INGOT, TIN_INGOT, DUST, ORE, STEAM, HAMMER))
             assertFalse(never.getRegistryName(), source.lookedUp.contains(never));
@@ -143,7 +154,7 @@ public class BreakdownPlannerTest {
         ItemKey crushedPlate = item("gregtech:plate_from_ore");
         source.add(crushedPlate, machine("Ore Smasher", 2, 1, slot(ORE, 1)));
 
-        BreakdownPlanner planner = planner(crushedPlate, BreakdownStrategy.CRAFTING_TABLE, 1, 4096);
+        BreakdownPlanner planner = planner(crushedPlate, RecipePreference.CRAFTING_TABLE, 1, 4096);
 
         assertNull(planner.result());
         assertTrue(
@@ -157,21 +168,21 @@ public class BreakdownPlannerTest {
 
     @Test
     public void recipesThatUseToolsAreStillBrokenDown() {
-        RecipeTree tree = plan(BreakdownStrategy.CRAFTING_TABLE);
+        RecipeTree tree = plan(RecipePreference.CRAFTING_TABLE);
 
         // The plate's only crafting-table recipe needs a hammer; the plate is still broken down to ingots.
         assertNotNull(
             tree.getChildren()
                 .get(0));
         assertTrue(
-            planner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 1, 4096).stopReasons()
+            planner(MACHINE, RecipePreference.CRAFTING_TABLE, 1, 4096).stopReasons()
                 .isEmpty());
     }
 
     @Test
     public void baseMaterialsAndUncraftableItemsAreNotBrokenDown() {
-        assertNull(planner(INGOT, BreakdownStrategy.CRAFTING_TABLE, 1, 4096).result());
-        assertNull(planner(item("minecraft:log"), BreakdownStrategy.CRAFTING_TABLE, 1, 4096).result());
+        assertNull(planner(INGOT, RecipePreference.CRAFTING_TABLE, 1, 4096).result());
+        assertNull(planner(item("minecraft:log"), RecipePreference.CRAFTING_TABLE, 1, 4096).result());
     }
 
     @Test
@@ -180,7 +191,7 @@ public class BreakdownPlannerTest {
         source.add(a, craft(1, slot(b, 1), slot(DUST, 1)));
         source.add(b, craft(1, slot(a, 1)));
 
-        RecipeTree tree = planner(a, BreakdownStrategy.CRAFTING_TABLE, 1, 4096).result();
+        RecipeTree tree = planner(a, RecipePreference.CRAFTING_TABLE, 1, 4096).result();
 
         assertNotNull(tree);
         assertNull(
@@ -192,7 +203,7 @@ public class BreakdownPlannerTest {
     public void recipesConsumingAnAncestorOfTheRowAreNotUsed() {
         BreakdownPlanner planner = new BreakdownPlanner(
             PLATE,
-            BreakdownStrategy.CRAFTING_TABLE,
+            RecipePreference.CRAFTING_TABLE,
             2,
             4096,
             Collections.singletonList(INGOT));
@@ -203,21 +214,21 @@ public class BreakdownPlannerTest {
 
     @Test
     public void depthLimitMatchesTheServer() {
-        BreakdownPlanner planner = planner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 15, 4096);
+        BreakdownPlanner planner = planner(MACHINE, RecipePreference.CRAFTING_TABLE, 15, 4096);
         RecipeTree tree = planner.result();
 
         assertEquals(1, tree.depth());
         assertTrue(planner.isTruncated());
-        assertNull(planner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 16, 4096).result());
+        assertNull(planner(MACHINE, RecipePreference.CRAFTING_TABLE, 16, 4096).result());
     }
 
     @Test
     public void rowBudgetStopsExpansionInsteadOfOverflowingTheCard() {
-        BreakdownPlanner small = planner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 1, 2);
+        BreakdownPlanner small = planner(MACHINE, RecipePreference.CRAFTING_TABLE, 1, 2);
 
         assertNull(small.result());
         assertTrue(small.isTruncated());
-        BreakdownPlanner enough = planner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 1, 5);
+        BreakdownPlanner enough = planner(MACHINE, RecipePreference.CRAFTING_TABLE, 1, 5);
         assertTrue(
             enough.result()
                 .nodeCount() <= 5);
@@ -225,19 +236,19 @@ public class BreakdownPlannerTest {
 
     @Test
     public void planningRunsInSlicesAndFinishesWithTheSameResult() {
-        BreakdownPlanner sliced = new BreakdownPlanner(MACHINE, BreakdownStrategy.CRAFTING_TABLE, 1, 4096);
+        BreakdownPlanner sliced = new BreakdownPlanner(MACHINE, RecipePreference.CRAFTING_TABLE, 1, 4096);
         int slices = 0;
         while (!sliced.step(source, 0)) slices++;
 
         assertTrue(slices > 1);
-        assertEquals(totals(plan(BreakdownStrategy.CRAFTING_TABLE), 1), totals(sliced.result(), 1));
+        assertEquals(totals(plan(RecipePreference.CRAFTING_TABLE), 1), totals(sliced.result(), 1));
     }
 
     @Test
     public void failingRecipeLookupsLeaveTheMaterialUnexpanded() {
         source.failing.add(CIRCUIT);
 
-        RecipeTree tree = plan(BreakdownStrategy.CRAFTING_TABLE);
+        RecipeTree tree = plan(RecipePreference.CRAFTING_TABLE);
 
         assertNull(
             tree.getChildren()
@@ -245,13 +256,13 @@ public class BreakdownPlannerTest {
         assertEquals(Long.valueOf(1), totals(tree, 1).get(CIRCUIT));
     }
 
-    private RecipeTree plan(BreakdownStrategy strategy) {
+    private RecipeTree plan(RecipePreference strategy) {
         RecipeTree tree = planner(MACHINE, strategy, 1, 4096).result();
         assertNotNull(tree);
         return tree;
     }
 
-    private BreakdownPlanner planner(ItemKey root, BreakdownStrategy strategy, int level, int budget) {
+    private BreakdownPlanner planner(ItemKey root, RecipePreference strategy, int level, int budget) {
         BreakdownPlanner planner = new BreakdownPlanner(root, strategy, level, budget);
         run(planner);
         return planner;

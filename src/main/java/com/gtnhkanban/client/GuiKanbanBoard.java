@@ -471,17 +471,18 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         List<CardView> cards = cardsIn(column.getId());
         boolean dropTarget = draggingCard && columnAt(dragMouseX) == index;
         drawRect(left, TOP, left + width, bottom(), dropTarget ? 0x5533CC66 : 0x66000000);
-        drawRect(left, TOP, left + width, TOP + HEADER, 0xCC1E2A38);
+        KanbanFrame.columnHeader(mc, left, TOP, width, HEADER);
         drawString(
             fontRendererObj,
             fontRendererObj.trimStringToWidth(column.getName(), width - 46) + " §7(" + cards.size() + ")",
-            left + 4,
+            left + 5,
             TOP + 5,
             0xFFFFFF);
         boolean plusHover = mouseX >= left + width - 16 && mouseX < left + width
             && mouseY >= TOP
             && mouseY < TOP + HEADER;
-        drawRect(left + width - 16, TOP + 2, left + width - 2, TOP + 16, plusHover ? 0xFF557755 : 0xFF334433);
+        // Inside the header's bevel, clear of its bottom shadow.
+        drawRect(left + width - 15, TOP + 3, left + width - 4, TOP + 14, plusHover ? 0xFF557755 : 0xFF334433);
         drawCenteredString(fontRendererObj, "+", left + width - 9, TOP + 5, 0xFFFFFF);
 
         CardStack stack = stack(index);

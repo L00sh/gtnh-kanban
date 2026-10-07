@@ -12,6 +12,7 @@ runtime, so panels and tabs can be any size while staying pixel-exact:
   (32, 32)  tab, hover (placeholder: normal, lightened)
   (48, 32)  tab, pressed (placeholder: normal, darkened)
   (80, 32)  tab, purple normal / (96, 32) hover / (112, 32) pressed: the orange set, hue-shifted (Projects tab)
+  (96, 0)   column header 9-slice, 17x17, same layout (art/column-header.png, drawn at 1x)
   (0, 64)   priority icons, 16x16 each: low, medium, high (art/priority-*.png, drawn at 1x)
   (64, 32)  cog glyph, 12x12 (11x11 gear plus a 1px drop shadow), transparent background
 
@@ -68,6 +69,8 @@ def main():
     card = half(Image.open(CARD_MOCKUP).convert("RGBA"))
     put_nine_slice(atlas, card, (0, 0, card.width - 1, card.height - 1), 32, 0)
     split_card(atlas, 32, 64)
+    header = Image.open(ROOT / "art" / "column-header.png").convert("RGBA")
+    put_nine_slice(atlas, header, (0, 0, header.width - 1, header.height - 1), 96, 0)
     for i, name in enumerate(PRIORITIES):
         atlas.paste(Image.open(ROOT / "art" / ("priority-%s.png" % name)).convert("RGBA"), (16 * i, 64))
     selected = three_slice(art, SELECTED_TAB)

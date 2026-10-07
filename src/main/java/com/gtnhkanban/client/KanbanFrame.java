@@ -264,6 +264,12 @@ final class KanbanFrame {
     /** Bevel widths of the card art, for placing content inside it. */
     static final int CARD_LEFT = 5, CARD_TOP = 5, CARD_RIGHT = 4, CARD_BOTTOM = 4;
 
+    /** A column header's bevelled bar; at least 16px tall (its art has a 3px shadow along the bottom). */
+    static void columnHeader(Minecraft mc, int x, int y, int width, int height) {
+        bind(mc);
+        nineSlice(96, x, y, width, height);
+    }
+
     /** The card border tint that reproduces the art's own grey, for cards without a type. */
     static final int PLAIN_CARD = 0x9A9A9A;
 

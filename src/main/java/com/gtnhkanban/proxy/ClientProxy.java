@@ -60,6 +60,18 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void receivePlayerNames(final java.util.UUID projectId, final List<String> names) {
+        Minecraft.getMinecraft()
+            .func_152344_a(new Runnable() {
+
+                @Override
+                public void run() {
+                    KanbanClientState.setPlayerNames(projectId, names);
+                }
+            });
+    }
+
+    @Override
     public void receiveOperationResult(final boolean success, final String code, final String message) {
         Minecraft.getMinecraft()
             .func_152344_a(new Runnable() {

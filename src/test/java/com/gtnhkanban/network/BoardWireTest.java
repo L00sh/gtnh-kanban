@@ -144,6 +144,17 @@ public class BoardWireTest {
                 .getColor());
     }
 
+    @Test
+    public void playerNamesSurviveTheWire() {
+        UUID project = UUID.randomUUID();
+        com.gtnhkanban.network.message.S2CPlayerNames received = new com.gtnhkanban.network.message.S2CPlayerNames();
+        received.fromBytes(
+            bytes(new com.gtnhkanban.network.message.S2CPlayerNames(project, Arrays.asList("Steve", "alex"))));
+
+        assertEquals(project, received.getProjectId());
+        assertEquals(Arrays.asList("Steve", "alex"), received.getNames());
+    }
+
     private static ByteBuf bytes(cpw.mods.fml.common.network.simpleimpl.IMessage message) {
         ByteBuf buffer = Unpooled.buffer();
         message.toBytes(buffer);

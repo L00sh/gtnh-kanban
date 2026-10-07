@@ -178,6 +178,20 @@ public final class KanbanClientState {
         replaceLocally(projectId, card.withAssignees(assignees));
     }
 
+    private static UUID playerNamesProject;
+    private static List<String> playerNames = Collections.emptyList();
+
+    /** Usernames the owner could add to {@code projectId}, from the server. */
+    public static void setPlayerNames(UUID projectId, List<String> names) {
+        playerNamesProject = projectId;
+        playerNames = new ArrayList<String>(names);
+    }
+
+    public static List<String> getPlayerNames(UUID projectId) {
+        return projectId != null && projectId.equals(playerNamesProject) ? Collections.unmodifiableList(playerNames)
+            : Collections.<String>emptyList();
+    }
+
     public static void setResult(boolean success, String code, String message) {
         resultSuccess = success;
         resultMessage = message == null ? "" : message;

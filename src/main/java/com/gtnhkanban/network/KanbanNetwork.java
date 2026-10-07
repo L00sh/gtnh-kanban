@@ -1,5 +1,6 @@
 package com.gtnhkanban.network;
 
+import java.util.List;
 import java.util.UUID;
 
 import net.minecraft.entity.player.EntityPlayerMP;
@@ -25,6 +26,7 @@ import com.gtnhkanban.network.message.C2SDeleteRequirement;
 import com.gtnhkanban.network.message.C2SDeleteTask;
 import com.gtnhkanban.network.message.C2SExpandRequirement;
 import com.gtnhkanban.network.message.C2SFetchBoard;
+import com.gtnhkanban.network.message.C2SListPlayerNames;
 import com.gtnhkanban.network.message.C2SListProjects;
 import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
@@ -42,6 +44,7 @@ import com.gtnhkanban.network.message.RequestType;
 import com.gtnhkanban.network.message.S2CBoardSnapshot;
 import com.gtnhkanban.network.message.S2COpenProjectList;
 import com.gtnhkanban.network.message.S2COperationResult;
+import com.gtnhkanban.network.message.S2CPlayerNames;
 import com.gtnhkanban.network.message.S2CProjectList;
 import com.gtnhkanban.service.CardFields;
 import com.gtnhkanban.service.ItemResolver;
@@ -75,6 +78,7 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new ClientProjectListHandler(), S2CProjectList.class, 10, Side.CLIENT);
         CHANNEL.registerMessage(new ClientBoardHandler(), S2CBoardSnapshot.class, 11, Side.CLIENT);
         CHANNEL.registerMessage(new ClientResultHandler(), S2COperationResult.class, 12, Side.CLIENT);
+        CHANNEL.registerMessage(new ClientPlayerNamesHandler(), S2CPlayerNames.class, 29, Side.CLIENT);
         CHANNEL.registerMessage(new ListProjectsHandler(), C2SListProjects.class, 0, Side.SERVER);
         CHANNEL.registerMessage(new CreateProjectHandler(), C2SCreateProject.class, 1, Side.SERVER);
         CHANNEL.registerMessage(new AddMemberHandler(), C2SAddMember.class, 2, Side.SERVER);
@@ -99,6 +103,7 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new AddCommentHandler(), C2SAddComment.class, 25, Side.SERVER);
         CHANNEL.registerMessage(new DeleteCommentHandler(), C2SDeleteComment.class, 26, Side.SERVER);
         CHANNEL.registerMessage(new SaveSettingsHandler(), C2SSaveSettings.class, 27, Side.SERVER);
+        CHANNEL.registerMessage(new ListPlayerNamesHandler(), C2SListPlayerNames.class, 28, Side.SERVER);
     }
 
     /** Drops unfinished uploads from a stopped server. */
@@ -144,11 +149,31 @@ public final class KanbanNetwork {
                         break;
                     }
                 }
-                if (!known) return null;
+                if (!known) {
+                    // Whitelisted players who have not joined yet are not in the profile cache.
+                    GameProfile whitelisted = MinecraftServer.getServer()
+                        .getConfigurationManager()
+                        .func_152599_k()
+                        .func_152706_a(username);
+                    return whitelisted == null ? null : whitelisted.getId();
+                }
                 GameProfile profile = MinecraftServer.getServer()
                     .func_152358_ax()
                     .func_152655_a(username);
                 return profile == null ? null : profile.getId();
+            }
+
+            @Override
+            public List<String> suggestedUsernames() {
+                String[] whitelisted = MinecraftServer.getServer()
+                    .getConfigurationManager()
+                    .func_152598_l();
+                // Without a whitelist (singleplayer, open servers), offer every player the server has seen.
+                String[] names = whitelisted.length > 0 ? whitelisted
+                    : MinecraftServer.getServer()
+                        .func_152358_ax()
+                        .func_152654_a();
+                return java.util.Arrays.asList(names);
             }
 
             @Override
@@ -201,6 +226,7 @@ public final class KanbanNetwork {
             KanbanService service = service();
             UUID actorId = player.getUniqueID();
             if (request.getType() != RequestType.LIST_PROJECTS && request.getType() != RequestType.FETCH_BOARD
+                && request.getType() != RequestType.LIST_PLAYER_NAMES
                 && !KanbanStorage.get()
                     .isWritable()) {
                 sendToClient(
@@ -220,6 +246,12 @@ public final class KanbanNetwork {
                     .createProject(actorId, bounded(request.getFirstText(), 64));
                 sendResult(player, result);
                 if (result.isSuccess()) requestProjectList(player, false);
+                return;
+            }
+            if (request.getType() == RequestType.LIST_PLAYER_NAMES) {
+                OperationResult<List<String>> names = service.memberSuggestions(actorId, request.getProjectId());
+                if (names.isSuccess())
+                    sendToClient(new S2CPlayerNames(request.getProjectId(), names.getValue()), player);
                 return;
             }
             if (request.getType() == RequestType.FETCH_BOARD) {
@@ -516,6 +548,18 @@ public final class KanbanNetwork {
         @Override
         public IMessage onMessage(S2CBoardSnapshot message, MessageContext context) {
             KanbanMod.proxy.receiveBoard(message.getSnapshot());
+            return null;
+        }
+    }
+
+    private static final class ListPlayerNamesHandler extends ServerRequestHandler {
+    }
+
+    private static final class ClientPlayerNamesHandler implements IMessageHandler<S2CPlayerNames, IMessage> {
+
+        @Override
+        public IMessage onMessage(S2CPlayerNames message, MessageContext context) {
+            KanbanMod.proxy.receivePlayerNames(message.getProjectId(), message.getNames());
             return null;
         }
     }

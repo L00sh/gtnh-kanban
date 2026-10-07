@@ -24,5 +24,6 @@ public enum RequestType {
     DELETE_TASK,
     ADD_COMMENT,
     DELETE_COMMENT,
-    SAVE_SETTINGS
+    SAVE_SETTINGS,
+    LIST_PLAYER_NAMES
 }

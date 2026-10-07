@@ -27,4 +27,6 @@ public class CommonProxy {
     public void receiveBoard(BoardSnapshot snapshot) {}
 
     public void receiveOperationResult(boolean success, String code, String message) {}
+
+    public void receivePlayerNames(java.util.UUID projectId, List<String> names) {}
 }

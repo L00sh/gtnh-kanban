@@ -40,14 +40,11 @@ public final class KanbanClientControls {
             .bus()
             .register(listener);
         MinecraftForge.EVENT_BUS.register(listener);
-        KanbanFontSwap.register();
     }
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
-        // Between frames the normal font must be in place, even if a Kanban screen's draw stopped partway.
-        KanbanFontSwap.restore();
         Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft.theWorld == null) {
             KanbanClientState.clearPinnedCard();

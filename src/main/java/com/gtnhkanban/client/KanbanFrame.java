@@ -35,13 +35,23 @@ final class KanbanFrame {
     private static final int CORNER = 8;
     private static final RenderItem RENDER = new RenderItem();
 
+    /** Unselected tab colors. Selected tabs are always teal. */
+    enum Color {
+        ORANGE,
+        /** The Projects tab, so "back to the project list" stands apart from the board's own tabs. */
+        PURPLE
+    }
+
     /** Tab look; hover and pressed are placeholder art until the final colors are drawn. */
     enum State {
 
         SELECTED(0, 0x47D6C8, 0x022C27),
         NORMAL(16, 0xE1AA56, 0x2C1A02),
         HOVER(32, 0xFFC46A, 0x2C1A02),
-        PRESSED(48, 0xE1AA56, 0x2C1A02);
+        PRESSED(48, 0xE1AA56, 0x2C1A02),
+        PURPLE_NORMAL(80, 0xA756E1, 0x1A012C),
+        PURPLE_HOVER(96, 0xC06AFF, 0x1A012C),
+        PURPLE_PRESSED(112, 0xA756E1, 0x1A012C);
 
         final int u;
         final int text;
@@ -63,6 +73,7 @@ final class KanbanFrame {
         final ItemStack icon;
         final boolean cog;
         final boolean selected;
+        Color color = Color.ORANGE;
         int x, width;
 
         Tab(int id, String label, String tooltip, ItemStack icon, boolean cog, boolean selected) {
@@ -87,6 +98,13 @@ final class KanbanFrame {
 
         Tabs add(int id, String label, ItemStack icon, boolean selected) {
             left.add(new Tab(id, label, null, icon, false, selected));
+            return this;
+        }
+
+        /** Adds a tab in {@code color} when not selected. */
+        Tabs add(int id, String label, ItemStack icon, boolean selected, Color color) {
+            add(id, label, icon, selected);
+            left.get(left.size() - 1).color = color;
             return this;
         }
 
@@ -172,20 +190,24 @@ final class KanbanFrame {
 
     static void drawTab(Minecraft mc, Tab tab, int mouseX, int mouseY) {
         boolean over = tab.contains(mouseX, mouseY);
+        boolean purple = tab.color == Color.PURPLE;
         State state = tab.selected ? State.SELECTED
-            : over && Mouse.isButtonDown(0) ? State.PRESSED : over ? State.HOVER : State.NORMAL;
+            : over && Mouse.isButtonDown(0) ? (purple ? State.PURPLE_PRESSED : State.PRESSED)
+                : over ? (purple ? State.PURPLE_HOVER : State.HOVER) : purple ? State.PURPLE_NORMAL : State.NORMAL;
         bind(mc);
         int y = TABS_TOP;
         quad(tab.x, y, 6, TAB_HEIGHT, state.u, 32, 6, TAB_HEIGHT);
         quad(tab.x + 6, y, tab.width - 12, TAB_HEIGHT, state.u + 6, 32, 1, TAB_HEIGHT);
         quad(tab.x + tab.width - 6, y, 6, TAB_HEIGHT, state.u + 7, 32, 6, TAB_HEIGHT);
         if (tab.cog) {
-            quad(tab.x + (tab.width - 8) / 2, y + 9, 8, 9, 64, 32, 8, 9);
+            // 11px gear (plus shadow) centred in the tab's 16px-tall inner area.
+            quad(tab.x + (tab.width - 11) / 2, y + 7, 12, 12, 64, 32, 12, 12);
             return;
         }
         int textX = tab.x + 11;
         if (tab.icon != null) {
-            item(mc, tab.icon, tab.label.isEmpty() ? tab.x + (tab.width - 16) / 2 : tab.x + 7, y + 4);
+            // The tab's border is 5px, leaving exactly 16px of inner height for the item.
+            item(mc, tab.icon, tab.label.isEmpty() ? tab.x + (tab.width - 16) / 2 : tab.x + 7, y + 5);
             textX += 16;
         } else if (tab.label.isEmpty()) {
             label(mc.fontRenderer, "?", tab.x + (tab.width - mc.fontRenderer.getStringWidth("?")) / 2, y + 9, state);

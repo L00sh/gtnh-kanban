@@ -59,7 +59,7 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
             .equals(projectId);
         String name = ours ? board.getProject()
             .getName() : "Board";
-        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false)
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false, KanbanFrame.Color.PURPLE)
             .add(
                 TAB_BOARD,
                 fontRendererObj.trimStringToWidth(name, 140),

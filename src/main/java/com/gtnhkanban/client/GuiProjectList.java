@@ -43,7 +43,7 @@ public final class GuiProjectList extends GuiKanbanScreen {
         buttonList.add(new GuiButton(NEXT, width / 2 + 65, height - 54, 35, 20, ">"));
         nameField = new GuiTextField(fontRendererObj, width / 2 - 100, height - 82, 200, 20);
         nameField.setMaxStringLength(64);
-        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, true)
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, true, KanbanFrame.Color.PURPLE)
             .addRight(TAB_SETTINGS, "Board settings", null, true);
         tabs.layout(fontRendererObj, width);
     }

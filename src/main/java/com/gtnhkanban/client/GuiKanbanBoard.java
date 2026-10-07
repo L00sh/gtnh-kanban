@@ -75,7 +75,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             : iconStack(
                 board.getProject()
                     .getIcon());
-        tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false)
+        tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false, KanbanFrame.Color.PURPLE)
             .add(BOARD, fontRendererObj.trimStringToWidth(name, 140), icon, true)
             .add(MEMBERS, "Members", null, false)
             .addRight(SETTINGS, "Board settings", null, true)

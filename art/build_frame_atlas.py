@@ -8,12 +8,14 @@ runtime, so panels and tabs can be any size while staying pixel-exact:
   (16, 32)  tab, normal (orange)
   (32, 32)  tab, hover (placeholder: normal, lightened)
   (48, 32)  tab, pressed (placeholder: normal, darkened)
-  (64, 32)  cog glyph, 8x9, transparent background
+  (80, 32)  tab, purple normal / (96, 32) hover / (112, 32) pressed: the orange set, hue-shifted (Projects tab)
+  (64, 32)  cog glyph, 12x12 (11x11 gear plus a 1px drop shadow), transparent background
 
 Usage (from the repository root, needs Pillow):  python art/build_frame_atlas.py
 To restyle hover or pressed tabs, replace the generated pieces here with hand-drawn ones.
 """
 
+import colorsys
 from pathlib import Path
 
 from PIL import Image
@@ -26,8 +28,26 @@ ATLAS = ROOT / "src" / "main" / "resources" / "assets" / "gtnhkanban" / "texture
 PANEL = (8, 40, 387, 288)
 SELECTED_TAB = (32, 19, 95, 39)
 NORMAL_TAB = (104, 19, 167, 39)
-COG_GLYPH = (363, 28, 370, 36)
-COG_TAB_FILL = (116, 72, 6)
+PURPLE_HUE = 275
+ORANGE_OUTLINE = (44, 26, 2)
+ORANGE_TEXT = (225, 170, 86)
+ORANGE_HOVER_TEXT = (255, 196, 106)
+COG_LIGHT = (255, 196, 106, 255)
+COG_SHADOW = (44, 26, 2, 255)
+# Drawn by hand: the mockup's 8px cog reads as a blob at game scale. Symmetric so it centres on whole pixels.
+COG = [
+    "....###....",
+    ".#..###..#.",
+    ".#########.",
+    "..#######..",
+    "####...####",
+    "####...####",
+    "####...####",
+    "..#######..",
+    ".#########.",
+    ".#..###..#.",
+    "....###....",
+]
 
 
 def main():
@@ -42,7 +62,14 @@ def main():
     atlas.paste(normal, (16, 32))
     atlas.paste(shade(normal, 1.25), (32, 32))
     atlas.paste(shade(normal, 0.8), (48, 32))
-    atlas.paste(cog(art), (64, 32))
+    atlas.paste(cog(), (64, 32))
+    purple = hue_shift(normal, PURPLE_HUE)
+    atlas.paste(purple, (80, 32))
+    atlas.paste(shade(purple, 1.25, outline=hue_shift_color(ORANGE_OUTLINE, PURPLE_HUE)), (96, 32))
+    atlas.paste(shade(purple, 0.8, outline=hue_shift_color(ORANGE_OUTLINE, PURPLE_HUE)), (112, 32))
+    print("purple label", hex_rgb(hue_shift_color(ORANGE_TEXT, PURPLE_HUE)), "shadow",
+          hex_rgb(hue_shift_color(ORANGE_OUTLINE, PURPLE_HUE)), "hover label",
+          hex_rgb(hue_shift_color(ORANGE_HOVER_TEXT, PURPLE_HUE)))
 
     ATLAS.parent.mkdir(parents=True, exist_ok=True)
     atlas.save(ATLAS)
@@ -77,24 +104,51 @@ def three_slice(art, box):
     return piece
 
 
-def shade(image, factor):
+def hue_shift_color(rgb, hue):
+    h, s, v = colorsys.rgb_to_hsv(*(c / 255 for c in rgb))
+    return tuple(int(c * 255) for c in colorsys.hsv_to_rgb(hue / 360, s, v))
+
+
+def hue_shift(image, hue):
+    """Same brightness and saturation per pixel, new hue: keeps the art's shading structure."""
     out = image.copy()
     pixels = out.load()
     for y in range(out.height):
         for x in range(out.width):
             r, g, b, a = pixels[x, y]
-            if a and (r, g, b) != (44, 26, 2):  # keep the dark outline
+            if a:
+                pixels[x, y] = hue_shift_color((r, g, b), hue) + (a,)
+    return out
+
+
+def hex_rgb(rgb):
+    return "0x%02X%02X%02X" % rgb
+
+
+def shade(image, factor, outline=ORANGE_OUTLINE):
+    out = image.copy()
+    pixels = out.load()
+    for y in range(out.height):
+        for x in range(out.width):
+            r, g, b, a = pixels[x, y]
+            if a and (r, g, b) != outline:  # keep the dark outline
                 pixels[x, y] = tuple(min(255, int(c * factor)) for c in (r, g, b)) + (a,)
     return out
 
 
-def cog(art):
-    glyph = crop(art, *COG_GLYPH)
+def cog():
+    """The gear in the tab's light text color, with a dark drop shadow down and right, like the tab labels."""
+    size = len(COG)
+    glyph = Image.new("RGBA", (size + 1, size + 1), (0, 0, 0, 0))
     pixels = glyph.load()
-    for y in range(glyph.height):
-        for x in range(glyph.width):
-            if pixels[x, y][:3] == COG_TAB_FILL:
-                pixels[x, y] = (0, 0, 0, 0)
+    for y, row in enumerate(COG):
+        for x, cell in enumerate(row):
+            if cell == "#":
+                pixels[x + 1, y + 1] = COG_SHADOW
+    for y, row in enumerate(COG):
+        for x, cell in enumerate(row):
+            if cell == "#":
+                pixels[x, y] = COG_LIGHT
     return glyph
 
 

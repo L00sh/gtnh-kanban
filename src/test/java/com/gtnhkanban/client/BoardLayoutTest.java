@@ -27,14 +27,41 @@ public class BoardLayoutTest {
     }
 
     @Test
+    public void cardsOfDifferentHeightsStackWithGaps() {
+        int[] heights = { 40, 60, 50 };
+        int[] tops = BoardLayout.stack(heights, 6);
+
+        assertArrayEquals(new int[] { 0, 46, 112 }, tops);
+        assertEquals(162, BoardLayout.stackHeight(tops, heights));
+        assertEquals(0, BoardLayout.stackHeight(new int[0], new int[0]));
+    }
+
+    @Test
+    public void cardAtFindsTheCardUnderThePointerButNotTheGaps() {
+        int[] heights = { 40, 60, 50 };
+        int[] tops = BoardLayout.stack(heights, 6);
+
+        assertEquals(0, BoardLayout.cardAt(0, tops, heights));
+        assertEquals(0, BoardLayout.cardAt(39, tops, heights));
+        assertEquals(-1, BoardLayout.cardAt(42, tops, heights));
+        assertEquals(1, BoardLayout.cardAt(46, tops, heights));
+        assertEquals(2, BoardLayout.cardAt(161, tops, heights));
+        assertEquals(-1, BoardLayout.cardAt(162, tops, heights));
+        assertEquals(-1, BoardLayout.cardAt(-1, tops, heights));
+    }
+
+    @Test
     public void dropIndexSwitchesHalfwayDownEachCard() {
-        // Cards 52 tall with a 3px gap: pitch 55, first card at y=50.
-        assertEquals(0, BoardLayout.dropIndex(50, 50, 55, 0, 3));
-        assertEquals(0, BoardLayout.dropIndex(76, 50, 55, 0, 3));
-        assertEquals(1, BoardLayout.dropIndex(78, 50, 55, 0, 3));
-        assertEquals(3, BoardLayout.dropIndex(500, 50, 55, 0, 3));
-        assertEquals(0, BoardLayout.dropIndex(10, 50, 55, 0, 3));
-        assertEquals("Scrolled columns count from the first shown card", 3, BoardLayout.dropIndex(78, 50, 55, 2, 9));
+        int[] heights = { 40, 60, 50 };
+        int[] tops = BoardLayout.stack(heights, 6);
+
+        assertEquals(0, BoardLayout.dropIndex(-30, tops, heights));
+        assertEquals(0, BoardLayout.dropIndex(19, tops, heights));
+        assertEquals(1, BoardLayout.dropIndex(20, tops, heights));
+        assertEquals("Halfway down the tall second card", 1, BoardLayout.dropIndex(75, tops, heights));
+        assertEquals(2, BoardLayout.dropIndex(76, tops, heights));
+        assertEquals(3, BoardLayout.dropIndex(137, tops, heights));
+        assertEquals(0, BoardLayout.dropIndex(5, new int[0], new int[0]));
     }
 
     @Test

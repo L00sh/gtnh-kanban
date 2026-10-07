@@ -46,6 +46,7 @@ import com.gtnhkanban.network.message.S2COpenProjectList;
 import com.gtnhkanban.network.message.S2COperationResult;
 import com.gtnhkanban.network.message.S2CPlayerNames;
 import com.gtnhkanban.network.message.S2CProjectList;
+import com.gtnhkanban.service.BoardValidator;
 import com.gtnhkanban.service.CardFields;
 import com.gtnhkanban.service.ItemResolver;
 import com.gtnhkanban.service.KanbanService;
@@ -402,7 +403,7 @@ public final class KanbanNetwork {
 
         private CardFields cardFields(KanbanRequest request) {
             return new CardFields(
-                bounded(request.getFirstText(), 64),
+                bounded(request.getFirstText(), BoardValidator.MAX_CARD_TITLE_LENGTH),
                 bounded(request.getSecondText(), 512),
                 request.getColumnId(),
                 request.getTypeId(),

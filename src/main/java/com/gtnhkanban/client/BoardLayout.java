@@ -36,15 +36,37 @@ final class BoardLayout {
         return total + Math.max(0, widths.length - 1) * gap;
     }
 
+    /** Tops of cards of the given heights stacked from 0 with {@code gap} between them. */
+    static int[] stack(int[] heights, int gap) {
+        int[] tops = new int[heights.length];
+        int y = 0;
+        for (int i = 0; i < heights.length; i++) {
+            tops[i] = y;
+            y += heights[i] + gap;
+        }
+        return tops;
+    }
+
+    /** Height of a stack: the bottom of its last card, or 0 when empty. */
+    static int stackHeight(int[] tops, int[] heights) {
+        return tops.length == 0 ? 0 : tops[tops.length - 1] + heights[heights.length - 1];
+    }
+
+    /** The card at {@code y} (measured from the top of the stack), or -1 for a gap or past the end. */
+    static int cardAt(int y, int[] tops, int[] heights) {
+        for (int i = 0; i < tops.length; i++) if (y >= tops[i] && y < tops[i] + heights[i]) return i;
+        return -1;
+    }
+
     /**
-     * Where a dragged card would land among a column's shown cards: the index of the card it would go above, or
-     * {@code count} for the bottom. The boundary between two cards is halfway down each card.
+     * Where a dragged card would land: the index of the card it would go above, or the card count for the bottom. The
+     * boundary between two cards is halfway down each card.
      *
-     * @param pitch card height plus the gap below it
+     * @param y measured from the top of the stack
      */
-    static int dropIndex(int mouseY, int cardsTop, int pitch, int scroll, int count) {
-        int slot = Math.floorDiv(mouseY - cardsTop + pitch / 2, pitch);
-        return Math.max(0, Math.min(count, scroll + slot));
+    static int dropIndex(int y, int[] tops, int[] heights) {
+        for (int i = 0; i < tops.length; i++) if (y < tops[i] + heights[i] / 2) return i;
+        return tops.length;
     }
 
     /** @return {@code {thumbTop, thumbHeight}} for a scrollbar track; the thumb is at least 8px tall */

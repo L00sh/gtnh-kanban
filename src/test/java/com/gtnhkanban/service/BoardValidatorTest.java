@@ -22,7 +22,7 @@ public class BoardValidatorTest {
             BoardValidator.validateProjectName(repeat('p', 64))
                 .isValid());
         assertTrue(
-            BoardValidator.validateCardTitle(repeat('c', 64))
+            BoardValidator.validateCardTitle(repeat('c', 255))
                 .isValid());
     }
 
@@ -38,7 +38,7 @@ public class BoardValidatorTest {
             BoardValidator.validateProjectName(repeat('p', 65))
                 .isValid());
         assertFalse(
-            BoardValidator.validateCardTitle(repeat('c', 65))
+            BoardValidator.validateCardTitle(repeat('c', 256))
                 .isValid());
     }
 

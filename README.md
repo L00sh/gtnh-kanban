@@ -2,6 +2,14 @@
 
 An in-game project board for Minecraft 1.7.10 Forge. The earlier board release was manually verified in GTNH 2.9 RC2; the new assignment and material expansion features need an in-game check in that pack.
 
+## Download
+
+**[Download latest build — gtnh-kanban-latest.jar](https://github.com/L00sh/gtnh-kanban/releases/download/latest-build/gtnh-kanban-latest.jar)**
+
+Updated after successful builds on `main`. This is a rolling prerelease; [release details](https://github.com/L00sh/gtnh-kanban/releases/tag/latest-build) identify the source commit and build run. The download becomes available after the first successful `main` build with this workflow.
+
+Install the JAR on the server and on clients that want Kanban features. Use copies of the same downloaded build on both sides: the filename stays the same as new builds are published, but the internal mod version changes. Remove the previous Kanban JAR before restarting. Development branches and pull requests keep their downloads in the workflow's artifacts.
+
 ## Use
 
 Open with `/kanban` or the configurable **K** hotkey, including in survival. Project owners manage membership on the **Members** tab: typing a name suggests whitelisted players (or, without a whitelist, players the server has seen); Tab completes, Enter adds, and each member has a **Remove** button. Project members can edit cards.

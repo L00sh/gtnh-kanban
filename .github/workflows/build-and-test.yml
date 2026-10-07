@@ -11,3 +11,76 @@ jobs:
   build-and-test:
     uses: GTNewHorizons/GTNH-Actions-Workflows/.github/workflows/build-and-test.yml@master
     secrets: inherit
+
+  publish-latest-build:
+    name: Publish latest main build
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: publish-latest-build
+      cancel-in-progress: false
+    steps:
+      - name: Download checked build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ github.repository_id }}-build-libs
+          path: build-libs
+
+      - name: Publish installable JAR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_RUN_NUMBER: ${{ github.run_number }}
+          BUILD_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t jars < <(find build-libs -maxdepth 1 -type f \
+            -name 'gtnhkanban-*.jar' ! -name '*-dev.jar' ! -name '*-sources.jar' \
+            ! -name '*-javadoc.jar' ! -name '*-api.jar' -print0)
+          if (( ${#jars[@]} != 1 )); then
+            echo "::error::Expected exactly one installable Kanban JAR; found ${#jars[@]}."
+            exit 1
+          fi
+          mkdir -p release
+          cp "${jars[0]}" release/gtnh-kanban-latest.jar
+
+          tag=latest-build
+          exists=false
+          if gh release view "$tag" --json body > release/current.json; then
+            exists=true
+            published_run=$(jq -r '.body // ""' release/current.json \
+              | sed -n 's/^<!-- kanban-build-run: \([0-9]*\) -->$/\1/p')
+            if [[ "$published_run" =~ ^[0-9]+$ ]] && (( published_run > BUILD_RUN_NUMBER )); then
+              echo "A newer successful build is already published; skipping this older run."
+              exit 0
+            fi
+          fi
+
+          cat > release/notes.md <<EOF
+          Latest successful main-branch build. This is a rolling prerelease, not a numbered stable release.
+
+          Commit: ${BUILD_SHA}
+          Build: ${BUILD_RUN_URL}
+
+          Install gtnh-kanban-latest.jar on the server and on clients that want Kanban features. Use copies of the same build on both sides; the stable filename does not change the version inside the JAR. Replace the previous Kanban JAR before restarting.
+
+          <!-- kanban-build-run: ${BUILD_RUN_NUMBER} -->
+          EOF
+
+          if [[ "$exists" == true ]]; then
+            gh release upload "$tag" release/gtnh-kanban-latest.jar --clobber
+            gh api --method PATCH "repos/${GH_REPO}/git/refs/tags/${tag}" \
+              -f sha="$BUILD_SHA" -F force=true
+            gh release edit "$tag" --title "Latest build" --prerelease --latest=false \
+              --target "$BUILD_SHA" --notes-file release/notes.md
+          else
+            gh release create "$tag" release/gtnh-kanban-latest.jar \
+              --title "Latest build" --prerelease --latest=false \
+              --target "$BUILD_SHA" --notes-file release/notes.md
+          fi

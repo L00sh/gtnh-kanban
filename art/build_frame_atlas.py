@@ -10,7 +10,7 @@ runtime, so panels and tabs can be any size while staying pixel-exact:
   (32, 32)  tab, hover (placeholder: normal, lightened)
   (48, 32)  tab, pressed (placeholder: normal, darkened)
   (80, 32)  tab, purple normal / (96, 32) hover / (112, 32) pressed: the orange set, hue-shifted (Projects tab)
-  (0, 64)   priority icons, 16x16 each: low, medium, high (from art/priority-*.png)
+  (0, 64)   priority icons, 16x16 each: low, medium, high (art/priority-*.png, drawn at 1x)
   (64, 32)  cog glyph, 12x12 (11x11 gear plus a 1px drop shadow), transparent background
 
 Usage (from the repository root, needs Pillow):  python art/build_frame_atlas.py
@@ -63,7 +63,7 @@ def main():
     card = half(Image.open(CARD_MOCKUP).convert("RGBA"))
     put_nine_slice(atlas, card, (0, 0, card.width - 1, card.height - 1), 32, 0)
     for i, name in enumerate(PRIORITIES):
-        atlas.paste(half(Image.open(ROOT / "art" / ("priority-%s.png" % name)).convert("RGBA")), (16 * i, 64))
+        atlas.paste(Image.open(ROOT / "art" / ("priority-%s.png" % name)).convert("RGBA"), (16 * i, 64))
     selected = three_slice(art, SELECTED_TAB)
     normal = three_slice(art, NORMAL_TAB)
     atlas.paste(selected, (0, 32))

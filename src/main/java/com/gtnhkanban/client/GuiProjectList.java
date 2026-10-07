@@ -43,8 +43,9 @@ public final class GuiProjectList extends GuiKanbanScreen {
         buttonList.add(new GuiButton(NEXT, width / 2 + 65, height - 54, 35, 20, ">"));
         nameField = new GuiTextField(fontRendererObj, width / 2 - 100, height - 82, 200, 20);
         nameField.setMaxStringLength(64);
-        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, true, KanbanFrame.Color.PURPLE)
-            .addRight(TAB_SETTINGS, "Board settings", null, true);
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, true, KanbanFrame.Color.PURPLE);
+        addProjectTabs(tabs, null);
+        tabs.addRight(TAB_SETTINGS, "Board settings", null, true);
         tabs.layout(fontRendererObj, width);
     }
 
@@ -62,6 +63,10 @@ public final class GuiProjectList extends GuiKanbanScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
+        if (projectTabClicked(tabs, mouseX, mouseY, null, mouseButton)) {
+            initGui();
+            return;
+        }
         KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
         if (tab != null) {
             if (tab.id == TAB_SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
@@ -86,6 +91,13 @@ public final class GuiProjectList extends GuiKanbanScreen {
                             }
                         }));
                 } else if (mouseX < width / 2 + 60) {
+                    if (!OpenProjects.open(project.getId())) {
+                        KanbanClientState.setResult(
+                            false,
+                            "TOO_MANY_TABS",
+                            "Up to " + OpenProjects.MAX + " projects can be open. Close a tab first.");
+                        return;
+                    }
                     KanbanNetwork.CHANNEL.sendToServer(new C2SFetchBoard(project.getId()));
                     mc.displayGuiScreen(new GuiKanbanBoard(project.getId(), this));
                 }

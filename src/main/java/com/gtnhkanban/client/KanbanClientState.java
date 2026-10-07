@@ -46,6 +46,7 @@ public final class KanbanClientState {
         PROJECTS.addAll(projects);
         Set<UUID> accessible = new HashSet<UUID>();
         for (ProjectSummary project : projects) accessible.add(project.getId());
+        OpenProjects.retain(accessible);
         for (UUID projectId : new ArrayList<UUID>(BOARDS.keySet())) {
             if (accessible.contains(projectId)) continue;
             BOARDS.remove(projectId);

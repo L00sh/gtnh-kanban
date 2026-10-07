@@ -49,6 +49,7 @@ public final class KanbanClientControls {
         if (minecraft.theWorld == null) {
             KanbanClientState.clearPinnedCard();
             KanbanClientState.clearBoards();
+            OpenProjects.clear();
             BreakdownJobs.clear();
             return;
         }

@@ -11,8 +11,12 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
  * While a Kanban screen draws, {@link Minecraft#fontRenderer} is the half-size {@link KanbanFont}, so everything drawn
  * through it (vanilla buttons, the frame's tabs, checklist rows) uses the small font without per-call changes. It is
  * restored right after the screen draws, and every client tick as a safety net in case a draw ever stops partway.
+ *
+ * <p>
+ * Public because Forge calls event handlers through a class it generates in another class loader, which cannot reach
+ * a package-private class (that failed with IllegalAccessError and crashed the game while drawing a screen).
  */
-final class KanbanFontSwap {
+public final class KanbanFontSwap {
 
     private static final KanbanFontSwap INSTANCE = new KanbanFontSwap();
     private static FontRenderer vanilla;

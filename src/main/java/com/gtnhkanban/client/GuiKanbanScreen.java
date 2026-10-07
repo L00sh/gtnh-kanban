@@ -46,12 +46,15 @@ abstract class GuiKanbanScreen extends GuiScreen {
 
     protected final void refreshBoardWhileOpen(UUID projectId) {
         refreshProjectId = projectId;
+        KanbanClientState.setActiveProject(projectId);
     }
 
     @Override
     public void updateScreen() {
         super.updateScreen();
         if (refreshProjectId == null || mc.thePlayer == null) return;
+        // The screen on display decides which project's board the shared state shows.
+        KanbanClientState.setActiveProject(refreshProjectId);
         if (++refreshTicks >= 20) {
             refreshTicks = 0;
             KanbanNetwork.CHANNEL.sendToServer(new C2SFetchBoard(refreshProjectId));

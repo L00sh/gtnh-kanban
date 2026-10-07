@@ -10,11 +10,11 @@ import net.minecraft.client.gui.GuiTextField;
 
 import org.lwjgl.input.Mouse;
 
-import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.network.KanbanNetwork;
+import com.gtnhkanban.network.message.C2SFetchBoard;
 import com.gtnhkanban.network.message.C2SSaveSettings;
 
 /**
@@ -45,7 +45,7 @@ final class GuiBoardSettings extends GuiKanbanScreen {
     private final List<Entry> types = new ArrayList<Entry>();
     private GuiTextField newColumn, newType;
     private int columnsLeft, typesLeft, panelWidth, columnScroll, typeScroll;
-    private boolean loaded;
+    private boolean loaded, requested;
     private String error = "";
 
     GuiBoardSettings(GuiScreen parent) {
@@ -57,15 +57,8 @@ final class GuiBoardSettings extends GuiKanbanScreen {
         panelWidth = Math.min(200, (width - 36) / 2);
         columnsLeft = width / 2 - panelWidth - 6;
         typesLeft = width / 2 + 6;
-        if (!loaded) {
-            BoardSnapshot board = KanbanClientState.getBoard();
-            BoardSettings settings = board == null ? BoardSettings.defaults() : board.getSettings();
-            for (BoardColumn column : settings.getColumns())
-                columns.add(new Entry(column.getId(), field(column.getName(), columnFieldWidth()), 0));
-            for (CardType type : settings.getTypes())
-                types.add(new Entry(type.getId(), field(type.getName(), typeFieldWidth()), type.getColor()));
-            loaded = true;
-        } else {
+        if (!loaded) load();
+        else {
             // Text fields have a fixed width, so rebuild them for the new screen size.
             for (Entry entry : columns) entry.name = field(entry.name.getText(), columnFieldWidth());
             for (Entry entry : types) entry.name = field(entry.name.getText(), typeFieldWidth());
@@ -132,7 +125,22 @@ final class GuiBoardSettings extends GuiKanbanScreen {
         error = "";
     }
 
+    /**
+     * Fills the lists from the server's settings. Until a board (which carries them) has arrived the screen waits with
+     * Save disabled: saving the defaults instead would overwrite every project's real columns and types.
+     */
+    private void load() {
+        BoardSettings settings = KanbanClientState.getSettings();
+        if (settings == null) return;
+        for (BoardColumn column : settings.getColumns())
+            columns.add(new Entry(column.getId(), field(column.getName(), columnFieldWidth()), 0));
+        for (CardType type : settings.getTypes())
+            types.add(new Entry(type.getId(), field(type.getName(), typeFieldWidth()), type.getColor()));
+        loaded = true;
+    }
+
     private void save() {
+        if (!loaded) return;
         List<BoardColumn> savedColumns = new ArrayList<BoardColumn>();
         for (Entry entry : columns) savedColumns.add(
             new BoardColumn(
@@ -212,6 +220,21 @@ final class GuiBoardSettings extends GuiKanbanScreen {
     @Override
     public void updateScreen() {
         super.updateScreen();
+        if (!loaded) {
+            load();
+            // Opened from the project list before any board was shown: fetch one to learn the settings.
+            if (!loaded && !requested
+                && !KanbanClientState.getProjects()
+                    .isEmpty()) {
+                requested = true;
+                KanbanNetwork.CHANNEL.sendToServer(
+                    new C2SFetchBoard(
+                        KanbanClientState.getProjects()
+                            .get(0)
+                            .getId()));
+            }
+        }
+        for (GuiButton button : buttonList) if (button.id == SAVE) button.enabled = loaded;
         newColumn.updateCursorCounter();
         newType.updateCursorCounter();
     }
@@ -220,6 +243,8 @@ final class GuiBoardSettings extends GuiKanbanScreen {
     public void drawScreen(int x, int y, float partialTicks) {
         drawDefaultBackground();
         drawCenteredString(fontRendererObj, "Board settings (all projects on this server)", width / 2, 8, 0xFFFFFF);
+        if (!loaded)
+            drawCenteredString(fontRendererObj, "Loading the current settings...", width / 2, height / 2, 0xAAAAAA);
         drawString(fontRendererObj, "Columns, left to right", columnsLeft, 30, 0xFFFFFF);
         drawString(fontRendererObj, "Card types", typesLeft, 30, 0xFFFFFF);
         for (int row = 0; row < capacity(); row++) {

@@ -2,8 +2,11 @@ package com.gtnhkanban.client;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -13,13 +16,24 @@ import com.gtnhkanban.api.MemberSummary;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
 import com.gtnhkanban.api.TaskView;
+import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardOrder;
 
-/** Client-thread cache of server snapshots used only for rendering GUI screens. */
+/**
+ * Client-thread cache of server snapshots used only for rendering GUI screens.
+ *
+ * <p>
+ * Boards are kept per project. The server sends a project's board to every member whenever it changes, so a member
+ * of several projects receives boards for projects they are not looking at; those must not replace the board on
+ * screen. Each project screen marks its project as active, and {@link #getBoard()} returns that project's board.
+ */
 public final class KanbanClientState {
 
     private static final List<ProjectSummary> PROJECTS = new ArrayList<ProjectSummary>();
-    private static BoardSnapshot board;
+    private static final Map<UUID, BoardSnapshot> BOARDS = new HashMap<UUID, BoardSnapshot>();
+    private static UUID activeProjectId;
+    /** The newest board received, for screens not tied to one project (server-wide settings are on every board). */
+    private static BoardSnapshot latest;
     private static UUID pinnedProjectId;
     private static CardView pinnedCard;
     private static String resultMessage = "";
@@ -30,24 +44,29 @@ public final class KanbanClientState {
     public static void setProjects(List<ProjectSummary> projects) {
         PROJECTS.clear();
         PROJECTS.addAll(projects);
-        if (board != null) {
-            boolean canStillAccessBoard = false;
-            for (ProjectSummary project : projects) {
-                if (project.getId()
-                    .equals(
-                        board.getProject()
-                            .getId())) {
-                    canStillAccessBoard = true;
-                    break;
-                }
-            }
-            if (!canStillAccessBoard) {
-                UUID inaccessibleProjectId = board.getProject()
-                    .getId();
-                board = null;
-                if (inaccessibleProjectId.equals(pinnedProjectId)) clearPinnedCard();
-            }
+        Set<UUID> accessible = new HashSet<UUID>();
+        for (ProjectSummary project : projects) accessible.add(project.getId());
+        for (UUID projectId : new ArrayList<UUID>(BOARDS.keySet())) {
+            if (accessible.contains(projectId)) continue;
+            BOARDS.remove(projectId);
+            if (projectId.equals(pinnedProjectId)) clearPinnedCard();
         }
+        if (latest != null && !accessible.contains(
+            latest.getProject()
+                .getId()))
+            latest = null;
+    }
+
+    /** Called by the screen showing {@code projectId}, so {@link #getBoard()} returns that project's board. */
+    public static void setActiveProject(UUID projectId) {
+        if (projectId != null) activeProjectId = projectId;
+    }
+
+    /** Forgets every board, e.g. when leaving a world or server. */
+    public static void clearBoards() {
+        BOARDS.clear();
+        activeProjectId = null;
+        latest = null;
     }
 
     public static List<ProjectSummary> getProjects() {
@@ -55,11 +74,15 @@ public final class KanbanClientState {
     }
 
     public static void setBoard(BoardSnapshot snapshot) {
-        board = snapshot;
-        if (snapshot != null && pinnedCard != null
-            && snapshot.getProject()
-                .getId()
-                .equals(pinnedProjectId)) {
+        if (snapshot == null) return;
+        BOARDS.put(
+            snapshot.getProject()
+                .getId(),
+            snapshot);
+        latest = snapshot;
+        if (pinnedCard != null && snapshot.getProject()
+            .getId()
+            .equals(pinnedProjectId)) {
             CardView updated = null;
             for (CardView card : snapshot.getCards()) {
                 if (card.getId()
@@ -73,15 +96,27 @@ public final class KanbanClientState {
         }
     }
 
+    /**
+     * The board of the project on screen, or null until it has arrived. With no project screen open yet, the newest
+     * board received.
+     */
     public static BoardSnapshot getBoard() {
-        return board;
+        return activeProjectId == null ? latest : BOARDS.get(activeProjectId);
+    }
+
+    public static BoardSnapshot getBoard(UUID projectId) {
+        return projectId == null ? null : BOARDS.get(projectId);
+    }
+
+    /** Server-wide columns and card types from any board received, or null before the first board arrives. */
+    public static BoardSettings getSettings() {
+        return latest == null ? null : latest.getSettings();
     }
 
     /** Shows a move immediately, placed exactly where the server will put it. */
     public static void moveCardLocally(UUID projectId, UUID cardId, UUID columnId, UUID beforeCardId) {
-        if (board == null || !board.getProject()
-            .getId()
-            .equals(projectId)) return;
+        BoardSnapshot board = getBoard(projectId);
+        if (board == null) return;
         CardView card = findCard(cardId);
         if (card == null) return;
         List<CardView> cards = new ArrayList<CardView>(board.getCards());
@@ -129,9 +164,8 @@ public final class KanbanClientState {
 
     /** Shows an edit immediately; the next server snapshot replaces it with the confirmed state. */
     private static void replaceLocally(UUID projectId, CardView replacement) {
-        if (board == null || !board.getProject()
-            .getId()
-            .equals(projectId)) return;
+        BoardSnapshot board = getBoard(projectId);
+        if (board == null) return;
         List<CardView> cards = new ArrayList<CardView>();
         for (CardView card : board.getCards()) cards.add(
             card.getId()
@@ -139,10 +173,20 @@ public final class KanbanClientState {
         setBoard(board.withCards(cards));
     }
 
+    /** Card ids are unique across projects, so this finds a card whichever project's board it is on. */
     public static CardView findCard(UUID cardId) {
-        if (board == null || cardId == null) return null;
-        for (CardView card : board.getCards()) if (card.getId()
+        if (cardId == null) return null;
+        BoardSnapshot active = getBoard();
+        if (active != null) for (CardView card : active.getCards()) if (card.getId()
             .equals(cardId)) return card;
+        for (BoardSnapshot board : BOARDS.values()) for (CardView card : board.getCards()) if (card.getId()
+            .equals(cardId)) return card;
+        return null;
+    }
+
+    private static BoardSnapshot boardOf(UUID cardId) {
+        for (BoardSnapshot board : BOARDS.values()) for (CardView card : board.getCards()) if (card.getId()
+            .equals(cardId)) return board;
         return null;
     }
 
@@ -162,6 +206,7 @@ public final class KanbanClientState {
         List<String> names = new ArrayList<String>();
         for (UUID id : card.getAssigneeIds()) {
             String name = id.toString();
+            BoardSnapshot board = boardOf(card.getId());
             if (board != null) for (MemberSummary member : board.getMembers()) if (member.getPlayerId()
                 .equals(id)) name = member.getDisplayName();
             names.add(name);

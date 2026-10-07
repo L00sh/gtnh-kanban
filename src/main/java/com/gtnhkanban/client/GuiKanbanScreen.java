@@ -3,12 +3,8 @@ package com.gtnhkanban.client;
 import java.util.List;
 import java.util.UUID;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.item.ItemStack;
-import net.minecraftforge.client.event.GuiScreenEvent;
-import net.minecraftforge.common.MinecraftForge;
 
 import org.lwjgl.input.Keyboard;
 
@@ -26,29 +22,6 @@ abstract class GuiKanbanScreen extends GuiScreen {
 
     GuiKanbanScreen(GuiScreen parentScreen) {
         this.parentScreen = parentScreen;
-    }
-
-    /**
-     * As vanilla, but the screen is laid out with the half-size {@link KanbanFont}, so text fields, tab widths and
-     * trimming measure the text that will be drawn. The Forge init events are kept for other mods.
-     */
-    @Override
-    public void setWorldAndResolution(Minecraft mc, int width, int height) {
-        this.mc = mc;
-        this.fontRendererObj = KanbanFont.get(mc);
-        this.width = width;
-        this.height = height;
-        if (!MinecraftForge.EVENT_BUS.post(new GuiScreenEvent.InitGuiEvent.Pre(this, this.buttonList))) {
-            this.buttonList.clear();
-            this.initGui();
-        }
-        MinecraftForge.EVENT_BUS.post(new GuiScreenEvent.InitGuiEvent.Post(this, this.buttonList));
-    }
-
-    /** Tooltips keep the normal font: their 10px line spacing is fixed and would look broken with small text. */
-    @Override
-    protected void drawHoveringText(List<String> lines, int x, int y, FontRenderer font) {
-        super.drawHoveringText(lines, x, y, KanbanFontSwap.vanilla(mc));
     }
 
     @Override

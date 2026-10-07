@@ -16,6 +16,8 @@ import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.GL11;
 
+import com.gtnhkanban.model.Priority;
+
 /**
  * The Kanban window: a large beveled panel with folder tabs along its top edge. Pieces come from
  * {@code textures/gui/frame.png}, generated from {@code art/frame-mockup.png} by {@code art/build_frame_atlas.py}, and
@@ -268,6 +270,13 @@ final class KanbanFrame {
         GL11.glColor4f(1, 1, 1, alpha);
         nineSlice(32, x, y, width, height);
         GL11.glColor4f(1, 1, 1, 1);
+    }
+
+    /** The priority's 16x16 icon at (x, y); nothing for no priority. */
+    static void priorityIcon(Minecraft mc, Priority priority, int x, int y) {
+        if (priority == null || priority == Priority.NONE) return;
+        bind(mc);
+        quad(x, y, 16, 16, 16 * (priority.ordinal() - Priority.LOW.ordinal()), 64, 16, 16);
     }
 
     /** Draws the 17x17 9-slice whose atlas source starts at (u, 0) over (x, y, width, height). */

@@ -584,18 +584,19 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                 lineY,
                 0xFFFFFF);
         }
-        String priority = priorityLabel(card.getPriority());
-        if (!priority.isEmpty()) drawString(
-            fontRendererObj,
-            priority,
-            right - fontRendererObj.getStringWidth(priority),
-            lineY,
-            priorityColor(card.getPriority()));
+        // 16px icon at the card's right edge, beside the badge row and clear of the number above it.
+        boolean prioritised = card.getPriority() != Priority.NONE;
+        KanbanFrame.priorityIcon(mc, card.getPriority(), right - 16, lineY - 2);
 
         String meta = TimeText.ago(card.getCreatedAt(), System.currentTimeMillis());
         if (!card.getCreatorName()
             .isEmpty()) meta += (meta.isEmpty() ? "by " : " by ") + card.getCreatorName();
-        drawString(fontRendererObj, fontRendererObj.trimStringToWidth(meta, right - left), left, lineY + 12, 0x999999);
+        drawString(
+            fontRendererObj,
+            fontRendererObj.trimStringToWidth(meta, right - left - (prioritised ? 18 : 0)),
+            left,
+            lineY + 12,
+            0x999999);
 
         int total = card.progressTotal();
         if (total > 0) {
@@ -687,30 +688,6 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
 
     static ItemStack iconStack(ItemKey icon) {
         return icon == null ? null : MaterialDisplay.stack(icon);
-    }
-
-    static String priorityLabel(Priority priority) {
-        switch (priority) {
-            case HIGH:
-                return "!!! High";
-            case MEDIUM:
-                return "!! Medium";
-            case LOW:
-                return "! Low";
-            default:
-                return "";
-        }
-    }
-
-    static int priorityColor(Priority priority) {
-        switch (priority) {
-            case HIGH:
-                return 0xFF5555;
-            case MEDIUM:
-                return 0xFFAA33;
-            default:
-                return 0x66AAFF;
-        }
     }
 
     private static int darken(int color) {

@@ -278,7 +278,8 @@ public final class KanbanNetwork {
                     result = service.deleteCard(actorId, projectId, request.getCardId());
                     break;
                 case MOVE_CARD:
-                    result = service.moveCard(actorId, projectId, request.getCardId(), request.getColumnId());
+                    result = service
+                        .moveCard(actorId, projectId, request.getCardId(), request.getColumnId(), request.getEntryId());
                     break;
                 case ADD_REQUIREMENT:
                     result = service.addRequirement(

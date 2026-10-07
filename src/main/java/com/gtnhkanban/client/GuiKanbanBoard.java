@@ -209,13 +209,20 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     }
 
     /** The add-card button sits at the right end of the column header, inside its bevel. */
-    private int addButtonLeft(int column) {
-        return columnLeft(column) + columnWidth(column) - 18;
+    private int addButtonRight(int column) {
+        return columnLeft(column) + columnWidth(column) - 4;
     }
 
+    private static final int ADD_BUTTON_CENTER = 8;
+
+    /** Over the button, with a couple of pixels to spare around it since it is small. */
     private boolean overAddButton(int column, int mouseX, int mouseY) {
-        int x = addButtonLeft(column);
-        return mouseX >= x && mouseX < x + 16 && mouseY >= TOP + 1 && mouseY < TOP + 17;
+        double size = KanbanFrame.iconSize(mc);
+        int right = addButtonRight(column);
+        int centerY = TOP + ADD_BUTTON_CENTER;
+        return mouseX >= right - size - 2 && mouseX < right + 2
+            && mouseY >= centerY - size / 2 - 2
+            && mouseY < centerY + size / 2 + 2;
     }
 
     private int columnAt(int mouseX) {
@@ -488,7 +495,8 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             left + 5,
             TOP + 5,
             0xFFFFFF);
-        KanbanFrame.addCardButton(mc, addButtonLeft(index), TOP + 1, overAddButton(index, mouseX, mouseY));
+        KanbanFrame
+            .addCardButton(mc, addButtonRight(index), TOP + ADD_BUTTON_CENTER, overAddButton(index, mouseX, mouseY));
 
         CardStack stack = stack(index);
         int scroll = scrollOf(column.getId(), stack);
@@ -589,16 +597,18 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                 lineY,
                 0xFFFFFF);
         }
-        // 16px icon at the card's right edge, beside the badge row and clear of the number above it.
+        // At the card's right edge, centred on the badge row.
         boolean prioritised = card.getPriority() != Priority.NONE;
-        KanbanFrame.priorityIcon(mc, card.getPriority(), right - 16, lineY - 2);
+        KanbanFrame.priorityIcon(mc, card.getPriority(), right, lineY + 4);
 
         String meta = TimeText.ago(card.getCreatedAt(), System.currentTimeMillis());
         if (!card.getCreatorName()
             .isEmpty()) meta += (meta.isEmpty() ? "by " : " by ") + card.getCreatorName();
         drawString(
             fontRendererObj,
-            fontRendererObj.trimStringToWidth(meta, right - left - (prioritised ? 18 : 0)),
+            fontRendererObj.trimStringToWidth(
+                meta,
+                right - left - (prioritised ? (int) Math.ceil(KanbanFrame.iconSize(mc)) + 2 : 0)),
             left,
             lineY + 12,
             0x999999);

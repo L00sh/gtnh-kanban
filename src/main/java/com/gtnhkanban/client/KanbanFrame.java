@@ -270,10 +270,39 @@ final class KanbanFrame {
         nineSlice(96, x, y, width, height);
     }
 
-    /** A column header's 16x16 add-card button at (x, y). */
-    static void addCardButton(Minecraft mc, int x, int y, boolean hover) {
+    /**
+     * The size, in GUI units, at which a 16x16 icon covers exactly 16x16 screen pixels: one pixel of its art per
+     * screen pixel at every GUI scale, the size it was drawn at.
+     */
+    static double iconSize(Minecraft mc) {
+        return 16.0 / scale(mc);
+    }
+
+    private static int scale(Minecraft mc) {
+        return new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+    }
+
+    /** A 16x16 atlas icon at {@link #iconSize}, its right edge at {@code right}, centred on {@code centerY}. */
+    private static void icon(Minecraft mc, int right, int centerY, int u, int v) {
+        int scale = scale(mc);
+        double size = 16.0 / scale;
+        // Snap to whole screen pixels so each texel lands on exactly one.
+        double x = Math.round((right - size) * scale) / (double) scale;
+        double y = Math.round((centerY - size / 2) * scale) / (double) scale;
         bind(mc);
-        quad(x, y, 16, 16, hover ? 64 : 48, 64, 16, 16);
+        float s = 1 / 256f;
+        Tessellator tessellator = Tessellator.instance;
+        tessellator.startDrawingQuads();
+        tessellator.addVertexWithUV(x, y + size, 0, u * s, (v + 16) * s);
+        tessellator.addVertexWithUV(x + size, y + size, 0, (u + 16) * s, (v + 16) * s);
+        tessellator.addVertexWithUV(x + size, y, 0, (u + 16) * s, v * s);
+        tessellator.addVertexWithUV(x, y, 0, u * s, v * s);
+        tessellator.draw();
+    }
+
+    /** A column header's add-card button, its right edge at {@code right}, centred on {@code centerY}. */
+    static void addCardButton(Minecraft mc, int right, int centerY, boolean hover) {
+        icon(mc, right, centerY, hover ? 64 : 48, 64);
     }
 
     /** The card border tint that reproduces the art's own grey, for cards without a type. */
@@ -292,11 +321,10 @@ final class KanbanFrame {
         GL11.glColor4f(1, 1, 1, 1);
     }
 
-    /** The priority's 16x16 icon at (x, y); nothing for no priority. */
-    static void priorityIcon(Minecraft mc, Priority priority, int x, int y) {
+    /** The priority's icon, its right edge at {@code right}, centred on {@code centerY}; nothing for no priority. */
+    static void priorityIcon(Minecraft mc, Priority priority, int right, int centerY) {
         if (priority == null || priority == Priority.NONE) return;
-        bind(mc);
-        quad(x, y, 16, 16, 16 * (priority.ordinal() - Priority.LOW.ordinal()), 64, 16, 16);
+        icon(mc, right, centerY, 16 * (priority.ordinal() - Priority.LOW.ordinal()), 64);
     }
 
     /** Draws the 17x17 9-slice whose atlas source starts at (u, 0) over (x, y, width, height). */
@@ -369,7 +397,7 @@ final class KanbanFrame {
 
     /** Restricts drawing to a screen rectangle (GUI coordinates) until {@link #endClip()}. */
     static void clip(Minecraft mc, int x, int y, int width, int height) {
-        int scale = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight).getScaleFactor();
+        int scale = scale(mc);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
         GL11.glScissor(
             x * scale,

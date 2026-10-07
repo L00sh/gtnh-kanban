@@ -2,6 +2,7 @@ package com.gtnhkanban.client;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
@@ -74,6 +75,8 @@ final class KanbanFrame {
         final boolean cog;
         final boolean selected;
         Color color = Color.ORANGE;
+        /** A project tab: closable with its × button. */
+        UUID project;
         int x, width;
 
         Tab(int id, String label, String tooltip, ItemStack icon, boolean cog, boolean selected) {
@@ -88,7 +91,35 @@ final class KanbanFrame {
         boolean contains(int mouseX, int mouseY) {
             return mouseX >= x && mouseX < x + width && mouseY >= TABS_TOP && mouseY < PANEL_TOP;
         }
+
+        boolean closable() {
+            return project != null;
+        }
+
+        /** Crowded project tabs drop their icon, then their ×, as they narrow; right-click still closes them. */
+        boolean showsIcon() {
+            return icon != null && (!closable() || width >= 30);
+        }
+
+        boolean showsClose() {
+            return closable() && width >= 44;
+        }
+
+        /** The × at the right end of a project tab. */
+        boolean overClose(int mouseX, int mouseY) {
+            return showsClose() && mouseX >= x + width - CLOSE_WIDTH - 4
+                && mouseX < x + width - 4
+                && mouseY >= TABS_TOP + 6
+                && mouseY < PANEL_TOP - 2;
+        }
     }
+
+    /** Room for a project tab's × button. */
+    private static final int CLOSE_WIDTH = 9;
+    /** Crowded project tabs shrink down to this; the selected one keeps room for its name. */
+    private static final int MIN_PROJECT_TAB = 20;
+    private static final int SELECTED_PROJECT_TAB = 72;
+    private static final int CROWDED_GAP = 2;
 
     /** Tabs on the left, in order, and on the right, right to left. */
     static final class Tabs {
@@ -113,19 +144,65 @@ final class KanbanFrame {
             return this;
         }
 
+        /** Adds a closable tab for an open project. */
+        Tabs addProject(int id, UUID project, String label, ItemStack icon, boolean selected) {
+            add(id, label, icon, selected);
+            left.get(left.size() - 1).project = project;
+            return this;
+        }
+
+        /**
+         * Places the tabs. Right tabs go first; when the left tabs would run into them, project tabs shrink evenly
+         * (their names are trimmed when drawn).
+         */
         void layout(FontRenderer font, int screenWidth) {
-            int x = MARGIN + FIRST_TAB_OFFSET;
-            for (Tab tab : left) {
-                tab.width = Math.max(48, font.getStringWidth(tab.label) + 22 + (tab.icon == null ? 0 : 18));
-                tab.x = x;
-                x += tab.width + TAB_GAP;
-            }
             int right = screenWidth - MARGIN - RIGHT_TAB_OFFSET;
             for (Tab tab : this.right) {
                 tab.width = tab.cog ? 33 : 27;
                 tab.x = right - tab.width;
                 right = tab.x - TAB_GAP / 2;
             }
+            int start = MARGIN + FIRST_TAB_OFFSET;
+            int natural = 0, fixed = 0, projects = 0;
+            for (Tab tab : left) {
+                tab.width = Math.max(
+                    48,
+                    font.getStringWidth(tab.label) + 22
+                        + (tab.icon == null ? 0 : 18)
+                        + (tab.closable() ? CLOSE_WIDTH + 2 : 0));
+                natural += tab.width;
+                if (tab.closable()) projects++;
+                else fixed += tab.width;
+            }
+            int gap = TAB_GAP;
+            int available = right - TAB_GAP - start;
+            if (projects > 0 && natural + Math.max(0, left.size() - 1) * gap > available) {
+                gap = CROWDED_GAP;
+                int room = available - Math.max(0, left.size() - 1) * gap - fixed;
+                Tab selected = null;
+                for (Tab tab : left) if (tab.closable() && tab.selected) selected = tab;
+                if (selected != null && projects > 1) {
+                    // The tab on screen keeps room for its icon, name and close button where it can.
+                    selected.width = Math.min(selected.width, Math.max(room / projects, SELECTED_PROJECT_TAB));
+                    room -= selected.width;
+                    int each = Math.max(MIN_PROJECT_TAB, room / (projects - 1));
+                    for (Tab tab : left) if (tab.closable() && tab != selected) tab.width = Math.min(tab.width, each);
+                } else {
+                    int each = Math.max(MIN_PROJECT_TAB, room / projects);
+                    for (Tab tab : left) if (tab.closable()) tab.width = Math.min(tab.width, each);
+                }
+            }
+            int x = start;
+            for (Tab tab : left) {
+                tab.x = x;
+                x += tab.width + gap;
+            }
+        }
+
+        /** @return the project tab whose × is under the mouse, or null */
+        Tab closeAt(int mouseX, int mouseY) {
+            for (Tab tab : left) if (tab.overClose(mouseX, mouseY)) return tab;
+            return null;
         }
 
         /** @return the tab under the mouse, or null */
@@ -143,7 +220,10 @@ final class KanbanFrame {
         /** Tooltip for the tab under the mouse, or null. */
         String tooltip(int mouseX, int mouseY) {
             Tab tab = at(mouseX, mouseY);
-            return tab == null ? null : tab.tooltip;
+            if (tab == null) return null;
+            if (tab.overClose(mouseX, mouseY)) return "Close " + tab.label;
+            // Project tab names may be trimmed to fit; the tooltip shows them whole.
+            return tab.closable() ? tab.label + " (right-click to close)" : tab.tooltip;
         }
     }
 
@@ -205,14 +285,28 @@ final class KanbanFrame {
             return;
         }
         int textX = tab.x + 11;
-        if (tab.icon != null) {
+        int textRight = tab.x + tab.width - 6 - (tab.showsClose() ? CLOSE_WIDTH + 2 : 0);
+        if (tab.showsClose()) {
+            boolean overClose = tab.overClose(mouseX, mouseY);
+            mc.fontRenderer.drawString("x", tab.x + tab.width - CLOSE_WIDTH - 1, y + 10, state.shadow);
+            mc.fontRenderer
+                .drawString("x", tab.x + tab.width - CLOSE_WIDTH - 2, y + 9, overClose ? 0xFF6060 : state.text);
+        }
+        if (tab.showsIcon()) {
             // The tab's border is 5px, leaving exactly 16px of inner height for the item.
-            item(mc, tab.icon, tab.label.isEmpty() ? tab.x + (tab.width - 16) / 2 : tab.x + 7, y + 5);
+            boolean centred = tab.label.isEmpty() || tab.closable() && !tab.showsClose() && tab.width < 46;
+            item(mc, tab.icon, centred ? tab.x + (tab.width - 16) / 2 : tab.x + 7, y + 5);
+            if (centred) return;
             textX += 16;
         } else if (tab.label.isEmpty()) {
             label(mc.fontRenderer, "?", tab.x + (tab.width - mc.fontRenderer.getStringWidth("?")) / 2, y + 9, state);
         }
-        if (!tab.label.isEmpty()) label(mc.fontRenderer, tab.label, textX, y + 9, state);
+        if (!tab.label.isEmpty() && textRight - textX >= 6) label(
+            mc.fontRenderer,
+            mc.fontRenderer.trimStringToWidth(tab.label, textRight - textX),
+            textX,
+            y + 9,
+            state);
     }
 
     /** Text with the frame's colored drop shadow. */

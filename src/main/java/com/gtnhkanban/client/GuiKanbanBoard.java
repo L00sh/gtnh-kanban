@@ -27,8 +27,7 @@ import com.gtnhkanban.network.message.C2SSetProjectIcon;
 /** The board: one scrollable column per server-wide column, with draggable cards. */
 public final class GuiKanbanBoard extends GuiKanbanScreen {
 
-    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6,
-        BOARD = 7;
+    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6;
     private static final int TOP = KanbanFrame.contentTop();
     private static final int HEADER = 18;
     private static final int GAP = 4;
@@ -59,6 +58,8 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     public GuiKanbanBoard(UUID projectId, GuiScreen parent) {
         super(parent);
         this.projectId = projectId;
+        // Usually already open (the project list checks the limit); a board reached another way still gets a tab.
+        OpenProjects.open(projectId);
         refreshBoardWhileOpen(projectId);
     }
 
@@ -71,19 +72,16 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         rebuildTabs();
     }
 
-    /** The board's name and icon live in its tab, so tabs are rebuilt when the board changes. */
+    /** Project names and icons live in their tabs, so tabs are rebuilt when boards change. */
     private void rebuildTabs() {
         BoardSnapshot board = board();
-        String name = board == null ? "Loading..."
-            : board.getProject()
-                .getName();
         ItemStack icon = board == null ? null
             : iconStack(
                 board.getProject()
                     .getIcon());
-        tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false, KanbanFrame.Color.PURPLE)
-            .add(BOARD, fontRendererObj.trimStringToWidth(name, 140), icon, true)
-            .add(MEMBERS, "Members", null, false)
+        tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false, KanbanFrame.Color.PURPLE);
+        addProjectTabs(tabs, projectId);
+        tabs.add(MEMBERS, "Members", null, false)
             .addRight(SETTINGS, "Board settings", null, true)
             .addRight(ICON, "Change project icon", icon, false);
         tabs.layout(fontRendererObj, width);
@@ -225,6 +223,7 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
+        if (projectTabClicked(tabs, mouseX, mouseY, projectId, mouseButton)) return;
         KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
         if (tab != null) {
             tabClicked(tab.id);

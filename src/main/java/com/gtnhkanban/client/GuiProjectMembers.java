@@ -24,7 +24,7 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     private static final int NEXT = 4;
 
     private final UUID projectId;
-    private static final int TAB_PROJECTS = 10, TAB_BOARD = 11, TAB_MEMBERS = 12, TAB_SETTINGS = 13;
+    private static final int TAB_PROJECTS = 10, TAB_MEMBERS = 12, TAB_SETTINGS = 13;
 
     /** Suggestions shown above the username box while it has focus. */
     private static final int MAX_SUGGESTIONS = 6;
@@ -104,22 +104,9 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     }
 
     private void rebuildTabs() {
-        BoardSnapshot board = KanbanClientState.getBoard();
-        boolean ours = board != null && board.getProject()
-            .getId()
-            .equals(projectId);
-        String name = ours ? board.getProject()
-            .getName() : "Board";
-        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false, KanbanFrame.Color.PURPLE)
-            .add(
-                TAB_BOARD,
-                fontRendererObj.trimStringToWidth(name, 140),
-                ours ? GuiKanbanBoard.iconStack(
-                    board.getProject()
-                        .getIcon())
-                    : null,
-                false)
-            .add(TAB_MEMBERS, "Members", null, true)
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false, KanbanFrame.Color.PURPLE);
+        addProjectTabs(tabs, null);
+        tabs.add(TAB_MEMBERS, "Members", null, true)
             .addRight(TAB_SETTINGS, "Board settings", null, true);
         tabs.layout(fontRendererObj, width);
     }
@@ -139,9 +126,14 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
         KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
+        // This project's own tab returns to the board this screen came from, keeping its scroll.
+        if (mouseButton == 0 && tab != null && projectId.equals(tab.project) && tabs.closeAt(mouseX, mouseY) == null) {
+            goBack();
+            return;
+        }
+        if (projectTabClicked(tabs, mouseX, mouseY, projectId, mouseButton)) return;
         if (tab != null) {
             if (tab.id == TAB_PROJECTS) openProjects();
-            else if (tab.id == TAB_BOARD) goBack();
             else if (tab.id == TAB_SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
             return;
         }

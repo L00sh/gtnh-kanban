@@ -83,6 +83,11 @@ public class BoardFeaturesServiceTest {
             public String usernameFor(UUID playerId) {
                 return OWNER.equals(playerId) ? "Owner" : "Member";
             }
+
+            @Override
+            public List<String> suggestedUsernames() {
+                return Arrays.asList("member", "Zed", "alex", "Owner", "ALEX", "WayTooLongUsername123");
+            }
         }, new ItemResolver() {
 
             @Override
@@ -337,6 +342,18 @@ public class BoardFeaturesServiceTest {
             5,
             settings.getColumns()
                 .size());
+    }
+
+    @Test
+    public void ownersGetSortedSuggestionsWithoutCurrentMembers() {
+        assertEquals(
+            Arrays.asList("alex", "Zed"),
+            service.memberSuggestions(OWNER, projectId)
+                .getValue());
+        assertEquals(
+            "FORBIDDEN",
+            service.memberSuggestions(MEMBER, projectId)
+                .getErrorCode());
     }
 
     @Test

@@ -4,7 +4,7 @@ An in-game project board for Minecraft 1.7.10 Forge. The earlier board release w
 
 ## Use
 
-Open with `/kanban` or the configurable **K** hotkey, including in survival. Project owners manage membership; project members can edit cards.
+Open with `/kanban` or the configurable **K** hotkey, including in survival. Project owners manage membership on the **Members** tab: typing a name suggests whitelisted players (or, without a whitelist, players the server has seen); Tab completes, Enter adds, and each member has a **Remove** button. Project members can edit cards.
 
 - **Board:** columns run left to right in the order set in **Board settings** (defaults: Backlog, Ready, In Progress, Review, Done). Each column shows its card count, scrolls with the mouse wheel, and has a **+** to create a card there. Drag cards between columns. With many columns, shift + wheel or the arrows scroll sideways. Cards are sorted by priority, then number.
 - **Cards:** each card has a per-project number (#1, #2, ... never reused), title, optional item icon, type, priority (None, Low, Medium, High), description, creator and creation time (the card shows its age; hover for the full date and time). A progress bar counts finished plain tasks and finished top-level checklist items.

@@ -130,6 +130,35 @@ public final class KanbanService {
         return OperationResult.success(null);
     }
 
+    /** Most names offered when adding members; plenty for a server's whitelist. */
+    static final int MAX_SUGGESTIONS = 2000;
+
+    /**
+     * Usernames the project owner can add: whitelisted (or, without a whitelist, known) players who are not already
+     * the owner or a member, sorted. Only the owner manages membership, so only the owner gets the list.
+     */
+    public OperationResult<List<String>> memberSuggestions(UUID actorId, UUID projectId) {
+        OperationResult<KanbanProject> authorized = requireOwner(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        Set<String> taken = new HashSet<String>();
+        KanbanProject project = authorized.getValue();
+        taken.add(
+            profiles.usernameFor(project.getOwnerId())
+                .toLowerCase(Locale.ROOT));
+        for (UUID memberId : project.getMemberIds()) taken.add(
+            profiles.usernameFor(memberId)
+                .toLowerCase(Locale.ROOT));
+        java.util.TreeMap<String, String> names = new java.util.TreeMap<String, String>();
+        for (String name : profiles.suggestedUsernames()) {
+            if (name == null || name.isEmpty() || name.length() > MAX_USERNAME_LENGTH) continue;
+            String key = name.toLowerCase(Locale.ROOT);
+            // The same player listed twice in different case: keep the first spelling.
+            if (!taken.contains(key) && !names.containsKey(key)) names.put(key, name);
+            if (names.size() >= MAX_SUGGESTIONS) break;
+        }
+        return OperationResult.success((List<String>) new ArrayList<String>(names.values()));
+    }
+
     public OperationResult<Void> removeMember(UUID actorId, UUID projectId, UUID memberId) {
         OperationResult<KanbanProject> authorized = requireOwner(actorId, projectId);
         if (!authorized.isSuccess()) {

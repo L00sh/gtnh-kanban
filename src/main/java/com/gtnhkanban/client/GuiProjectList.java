@@ -21,8 +21,11 @@ public final class GuiProjectList extends GuiKanbanScreen {
     private static final int PREVIOUS = 2;
     private static final int NEXT = 3;
 
+    private static final int TAB_PROJECTS = 10, TAB_SETTINGS = 11;
+
     private GuiTextField nameField;
     private int page;
+    private KanbanFrame.Tabs tabs = new KanbanFrame.Tabs();
 
     public GuiProjectList() {
         super(null);
@@ -40,6 +43,9 @@ public final class GuiProjectList extends GuiKanbanScreen {
         buttonList.add(new GuiButton(NEXT, width / 2 + 65, height - 54, 35, 20, ">"));
         nameField = new GuiTextField(fontRendererObj, width / 2 - 100, height - 82, 200, 20);
         nameField.setMaxStringLength(64);
+        tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, true, KanbanFrame.Color.PURPLE)
+            .addRight(TAB_SETTINGS, "Board settings", null, true);
+        tabs.layout(fontRendererObj, width);
     }
 
     @Override
@@ -56,6 +62,11 @@ public final class GuiProjectList extends GuiKanbanScreen {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) {
         super.mouseClicked(mouseX, mouseY, mouseButton);
+        KanbanFrame.Tab tab = mouseButton == 0 ? tabs.at(mouseX, mouseY) : null;
+        if (tab != null) {
+            if (tab.id == TAB_SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
+            return;
+        }
         nameField.mouseClicked(mouseX, mouseY, mouseButton);
         if (mouseButton != 0 || mouseX < width / 2 - 135 || mouseX > width / 2 + 110) {
             return;
@@ -97,7 +108,8 @@ public final class GuiProjectList extends GuiKanbanScreen {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         drawDefaultBackground();
-        drawCenteredString(fontRendererObj, "Projects", width / 2, 20, 0xFFFFFF);
+        KanbanFrame.drawWindow(mc, width, height);
+        tabs.draw(mc, mouseX, mouseY);
         page = Math.min(page, lastPage());
         List<ProjectSummary> projects = PagedList.pageItems(KanbanClientState.getProjects(), page, PAGE_SIZE);
         if (projects.isEmpty()) {
@@ -142,6 +154,9 @@ public final class GuiProjectList extends GuiKanbanScreen {
         drawResult();
         nameField.drawTextBox();
         super.drawScreen(mouseX, mouseY, partialTicks);
+        String tabTip = tabs.tooltip(mouseX, mouseY);
+        if (tabTip != null)
+            drawHoveringText(java.util.Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
     }
 
     private int lastPage() {

@@ -196,6 +196,36 @@ public class BoardFeaturesServiceTest {
     }
 
     @Test
+    public void cardsCanBeReorderedAndMovedToAPosition() {
+        CardView first = create("Boiler");
+        CardView second = create("Pump");
+        CardView third = create("Tank");
+
+        assertTrue(
+            service.moveCard(MEMBER, projectId, third.getId(), BoardSettings.BACKLOG, first.getId())
+                .isSuccess());
+        List<CardView> cards = service.getBoard(OWNER, projectId)
+            .getValue()
+            .getCards();
+        assertEquals(
+            "Tank",
+            cards.get(0)
+                .getTitle());
+        assertEquals(
+            "Boiler",
+            cards.get(1)
+                .getTitle());
+        assertEquals(
+            "Pump",
+            cards.get(2)
+                .getTitle());
+        assertEquals(
+            "INVALID_POSITION",
+            service.moveCard(MEMBER, projectId, second.getId(), BoardSettings.DONE, first.getId())
+                .getErrorCode());
+    }
+
+    @Test
     public void tasksDriveTheProgressBar() {
         CardView card = create("Boiler");
         service.addTask(MEMBER, projectId, card.getId(), "  Place casings  ");

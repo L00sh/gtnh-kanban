@@ -121,6 +121,30 @@ public final class KanbanProject {
         return card != null && cards.remove(card);
     }
 
+    /**
+     * Moves a card into {@code columnId}, just before {@code beforeCardId} (which must be another card already in that
+     * column) or, when that is null, to the end of the column.
+     *
+     * @return false when the card or the target position does not exist
+     */
+    public boolean moveCard(UUID cardId, UUID columnId, UUID beforeCardId) {
+        KanbanCard card = findCard(cardId);
+        if (card == null || columnId == null) return false;
+        KanbanCard before = beforeCardId == null ? null : findCard(beforeCardId);
+        if (beforeCardId != null && (before == null || before == card || !columnId.equals(before.getColumnId())))
+            return false;
+        cards.remove(card);
+        card.setColumnId(columnId);
+        cards.add(CardOrder.insertionIndex(cards, new CardOrder.Columns<KanbanCard>() {
+
+            @Override
+            public UUID columnOf(KanbanCard value) {
+                return value.getColumnId();
+            }
+        }, columnId, before), card);
+        return true;
+    }
+
     public KanbanCard findCard(UUID cardId) {
         for (KanbanCard card : cards) {
             if (card.getId()

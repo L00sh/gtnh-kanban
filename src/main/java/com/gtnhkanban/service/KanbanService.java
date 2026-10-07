@@ -243,13 +243,24 @@ public final class KanbanService {
     }
 
     public OperationResult<CardView> moveCard(UUID actorId, UUID projectId, UUID cardId, UUID columnId) {
+        return moveCard(actorId, projectId, cardId, columnId, null);
+    }
+
+    /**
+     * Moves a card to another column or position. With {@code beforeCardId} it lands just above that card (which must
+     * be in the target column); without, at the bottom of the column.
+     */
+    public OperationResult<CardView> moveCard(UUID actorId, UUID projectId, UUID cardId, UUID columnId,
+        UUID beforeCardId) {
         OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
         if (!authorized.isSuccess()) return failure(authorized);
         KanbanCard card = findCard(authorized.getValue(), cardId);
         if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
         if (columnId == null || !projects.getSettings()
             .hasColumn(columnId)) return OperationResult.failure("INVALID_COLUMN", "That column no longer exists.");
-        card.setColumnId(columnId);
+        if (!authorized.getValue()
+            .moveCard(cardId, columnId, beforeCardId))
+            return OperationResult.failure("INVALID_POSITION", "That card moved meanwhile. Try again.");
         projects.saveProject(authorized.getValue());
         return OperationResult.success(cardView(card));
     }

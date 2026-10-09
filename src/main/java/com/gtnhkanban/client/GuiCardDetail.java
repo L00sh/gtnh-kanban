@@ -113,7 +113,10 @@ public final class GuiCardDetail extends GuiKanbanScreen {
 
                     @Override
                     public void open(RequirementView row) {
-                        mc.displayGuiScreen(new GuiRecipePicker(projectId, cardId, row, GuiCardDetail.this));
+                        // Shift opens the old list, which also has auto breakdown and removing the materials.
+                        if (isShiftKeyDown())
+                            mc.displayGuiScreen(new GuiRecipePicker(projectId, cardId, row, GuiCardDetail.this));
+                        else NeiRecipeChooser.open(projectId, cardId, row, GuiCardDetail.this);
                     }
                 });
         }

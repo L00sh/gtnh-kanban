@@ -168,6 +168,7 @@ public final class GuiItemPicker extends GuiKanbanScreen {
             Object registryName = Item.itemRegistry.getNameForObject(selected.getItem());
             if (quantity > 0 && registryName != null) {
                 BreakdownJobs.addWithBreakdown(projectId, cardId, MaterialDisplay.key(selected), quantity);
+                addStructure(selected, quantity);
                 goBack();
             }
         } catch (NumberFormatException ignored) {
@@ -175,6 +176,27 @@ public final class GuiItemPicker extends GuiKanbanScreen {
         } catch (IllegalArgumentException exception) {
             KanbanClientState.setResult(false, "UNSUPPORTED_ITEM", exception.getMessage());
         }
+    }
+
+    /** A multiblock controller brings the blocks its structure needs, as NEI's multiblock tab lists them. */
+    private void addStructure(ItemStack controller, int quantity) {
+        List<MultiblockStructure.Part> parts = MultiblockStructure.parts(controller);
+        if (parts.isEmpty()) return;
+        int added = 0;
+        for (MultiblockStructure.Part part : parts) {
+            long amount = (long) part.count * quantity;
+            if (amount > Integer.MAX_VALUE) continue;
+            BreakdownJobs.addWithBreakdown(projectId, cardId, part.item, (int) amount);
+            added++;
+        }
+        KanbanClientState.setResult(
+            true,
+            "",
+            "Adding " + added
+                + (added == 1 ? " structure block" : " structure blocks")
+                + " for "
+                + controller.getDisplayName()
+                + ".");
     }
 
     private void refreshItems() {

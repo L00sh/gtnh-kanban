@@ -40,6 +40,7 @@ public final class KanbanClientControls {
             .bus()
             .register(listener);
         MinecraftForge.EVENT_BUS.register(listener);
+        MinecraftForge.EVENT_BUS.register(new NeiRecipeChooser());
     }
 
     @SubscribeEvent
@@ -51,6 +52,7 @@ public final class KanbanClientControls {
             KanbanClientState.clearBoards();
             OpenProjects.clear();
             BreakdownJobs.clear();
+            NeiRecipeChooser.clear();
             return;
         }
         BreakdownJobs.tick();

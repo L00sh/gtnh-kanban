@@ -95,67 +95,86 @@ final class NeiRecipeCatalog {
         ItemStack query = MaterialDisplay.stack(requested);
         if (query == null) return choices;
         for (ICraftingHandler handler : GuiCraftingRecipe.getCraftingHandlers("item", query)) {
-            RecipeCandidate.Kind kind = kind(handler);
             for (int recipe = 0; recipe < handler.numRecipes(); recipe++) {
-                try {
-                    Output output = matchingOutput(handler, recipe, requested);
-                    if (output == null) continue;
-                    if (isExcluded(handler) || isFakeGregTechRecipe(handler, recipe)) continue;
-                    int amount = output.amount;
-                    List<Input> inputs = new ArrayList<Input>();
-                    String error = "";
-                    if (amount < 1 || output.probabilistic)
-                        error = "Probabilistic or unknown output amount cannot be expanded.";
-                    List<PositionedStack> ingredients = handler.getIngredientStacks(recipe);
-                    if (ingredients == null || ingredients.isEmpty() || ingredients.size() > 256)
-                        error = "This recipe does not expose usable ingredients.";
-                    else for (PositionedStack slot : ingredients) {
-                        Input input = new Input();
-                        String skipped = "";
-                        slot.generatePermutations();
-                        if (isProgrammedCircuit(slot)) continue;
-                        if (slot.items != null) for (ItemStack stack : slot.items) {
-                            try {
-                                ItemKey key = MaterialDisplay.key(stack);
-                                int count = inputAmount(slot, stack);
-                                if (key.getNbt()
-                                    .length() > 4096)
-                                    throw new IllegalArgumentException("Ingredient data is too large.");
-                                boolean duplicate = false;
-                                for (RecipeIngredient previous : input.alternatives) if (previous.getMaterial()
-                                    .equals(key)) duplicate = true;
-                                if (!duplicate) input.alternatives
-                                    .add(new RecipeIngredient(key, Math.max(1, count), isReusable(slot, stack, count)));
-                            } catch (IllegalArgumentException exception) {
-                                // Skip just this variant; the slot fails only if no variant is usable.
-                                skipped = exception.getMessage();
-                            }
-                        }
-                        if (input.alternatives.isEmpty())
-                            error = skipped.isEmpty() ? "An ingredient has no supported concrete alternatives."
-                                : skipped;
-                        inputs.add(input);
-                    }
-                    choices.add(
-                        new Choice(
-                            handler.getRecipeName(),
-                            Math.max(1, amount),
-                            inputs,
-                            error,
-                            kind,
-                            euPerTick(handler, recipe)));
-                } catch (RuntimeException exception) {
-                    choices.add(
-                        new Choice(
-                            handler.getRecipeName(),
-                            1,
-                            new ArrayList<Input>(),
-                            "This NEI handler cannot expose a complete material list."));
-                }
+                Choice choice = choice(handler, recipe, requested, false);
+                if (choice != null) choices.add(choice);
                 if (choices.size() >= 4096) return choices;
             }
         }
         return choices;
+    }
+
+    /** True when the recipe makes {@code requested} and is one a breakdown may use (not uncrafting, not fake). */
+    static boolean makes(ICraftingHandler handler, int recipe, ItemKey requested) {
+        try {
+            return matchingOutput(handler, recipe, requested) != null && !isExcluded(handler)
+                && !isFakeGregTechRecipe(handler, recipe);
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    /**
+     * One recipe as a choice, or null when it does not make {@code requested} or may not be used.
+     *
+     * @param shownOnly use only the ingredient each slot currently shows (as NEI draws it, after the player scrolled
+     *                  through its options) instead of every alternative
+     */
+    static Choice choice(ICraftingHandler handler, int recipe, ItemKey requested, boolean shownOnly) {
+        RecipeCandidate.Kind kind = kind(handler);
+        try {
+            Output output = matchingOutput(handler, recipe, requested);
+            if (output == null) return null;
+            if (isExcluded(handler) || isFakeGregTechRecipe(handler, recipe)) return null;
+            int amount = output.amount;
+            List<Input> inputs = new ArrayList<Input>();
+            String error = "";
+            if (amount < 1 || output.probabilistic)
+                error = "Probabilistic or unknown output amount cannot be expanded.";
+            List<PositionedStack> ingredients = handler.getIngredientStacks(recipe);
+            if (ingredients == null || ingredients.isEmpty() || ingredients.size() > 256)
+                error = "This recipe does not expose usable ingredients.";
+            else for (PositionedStack slot : ingredients) {
+                Input input = new Input();
+                String skipped = "";
+                // Regenerating permutations would reset the one on screen.
+                if (!shownOnly) slot.generatePermutations();
+                if (isProgrammedCircuit(slot)) continue;
+                ItemStack[] options = shownOnly && slot.item != null ? new ItemStack[] { slot.item } : slot.items;
+                if (options != null) for (ItemStack stack : options) {
+                    try {
+                        ItemKey key = MaterialDisplay.key(stack);
+                        int count = inputAmount(slot, stack);
+                        if (key.getNbt()
+                            .length() > 4096) throw new IllegalArgumentException("Ingredient data is too large.");
+                        boolean duplicate = false;
+                        for (RecipeIngredient previous : input.alternatives) if (previous.getMaterial()
+                            .equals(key)) duplicate = true;
+                        if (!duplicate) input.alternatives
+                            .add(new RecipeIngredient(key, Math.max(1, count), isReusable(slot, stack, count)));
+                    } catch (IllegalArgumentException exception) {
+                        // Skip just this variant; the slot fails only if no variant is usable.
+                        skipped = exception.getMessage();
+                    }
+                }
+                if (input.alternatives.isEmpty())
+                    error = skipped.isEmpty() ? "An ingredient has no supported concrete alternatives." : skipped;
+                inputs.add(input);
+            }
+            return new Choice(
+                handler.getRecipeName(),
+                Math.max(1, amount),
+                inputs,
+                error,
+                kind,
+                euPerTick(handler, recipe));
+        } catch (RuntimeException exception) {
+            return new Choice(
+                handler.getRecipeName(),
+                1,
+                new ArrayList<Input>(),
+                "This NEI handler cannot expose a complete material list.");
+        }
     }
 
     private static RecipeCandidate.Kind kind(ICraftingHandler handler) {

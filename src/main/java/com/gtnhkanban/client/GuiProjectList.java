@@ -22,8 +22,9 @@ public final class GuiProjectList extends GuiKanbanScreen {
     private static final int NEXT = 3;
 
     private static final int TAB_PROJECTS = 10, TAB_SETTINGS = 11;
-    /** Project rows span this far either side of the centre. */
-    private static final int HALF_ROW = 180, ROW_TOP = 48, ROW = 20;
+    private static final int ROW_TOP = 48, ROW = 20;
+    /** Columns measured back from a row's right edge, so they never run into each other. */
+    private static final int DELETE_X = 42, ROLE_X = 100, PROGRESS_X = 200, CARDS_X = 262;
 
     private GuiTextField nameField;
     private int page;
@@ -75,13 +76,13 @@ public final class GuiProjectList extends GuiKanbanScreen {
             return;
         }
         nameField.mouseClicked(mouseX, mouseY, mouseButton);
-        int left = width / 2 - HALF_ROW, right = width / 2 + HALF_ROW;
+        int left = rowLeft(), right = rowRight();
         if (mouseButton != 0 || mouseX < left || mouseX >= right || mouseY < ROW_TOP) return;
         int row = (mouseY - ROW_TOP) / ROW;
         List<ProjectSummary> visible = PagedList.pageItems(KanbanClientState.getProjects(), page, PAGE_SIZE);
         if (row >= visible.size()) return;
         final ProjectSummary project = visible.get(row);
-        if (mouseX >= right - 42) {
+        if (mouseX >= right - DELETE_X - 4) {
             if (!project.isActorIsOwner()) return;
             mc.displayGuiScreen(
                 new GuiTypedConfirm(
@@ -130,7 +131,7 @@ public final class GuiProjectList extends GuiKanbanScreen {
         if (projects.isEmpty()) {
             drawCenteredString(fontRendererObj, "No projects yet. Create one below.", width / 2, 54, 0xAAAAAA);
         }
-        int left = width / 2 - HALF_ROW, right = width / 2 + HALF_ROW;
+        int left = rowLeft(), right = rowRight();
         for (int index = 0; index < projects.size(); index++) {
             ProjectSummary project = projects.get(index);
             int y = ROW_TOP + index * ROW;
@@ -145,25 +146,25 @@ public final class GuiProjectList extends GuiKanbanScreen {
             }
             drawString(
                 fontRendererObj,
-                fontRendererObj.trimStringToWidth(project.getName(), 120),
+                fontRendererObj.trimStringToWidth(project.getName(), right - CARDS_X - left - 28),
                 left + 22,
                 y + 6,
                 0xFFFFFF);
             int cards = project.getCardCount();
-            drawString(fontRendererObj, cards + (cards == 1 ? " card" : " cards"), left + 148, y + 6, 0xAAAAAA);
-            drawProgress(project, left + 200, y + 7);
+            drawString(fontRendererObj, cards + (cards == 1 ? " card" : " cards"), right - CARDS_X, y + 6, 0xAAAAAA);
+            drawProgress(project, right - PROGRESS_X, y + 7);
             drawString(
                 fontRendererObj,
                 project.isActorIsOwner() ? "Owner" : "Member",
-                left + 296,
+                right - ROLE_X,
                 y + 6,
                 project.isActorIsOwner() ? 0xFFAA00 : 0xAAAAAA);
             if (project.isActorIsOwner()) drawString(
                 fontRendererObj,
                 "Delete",
-                right - 38,
+                right - DELETE_X,
                 y + 6,
-                hovered && mouseX >= right - 42 ? 0xFFAAAA : 0xFF7777);
+                hovered && mouseX >= right - DELETE_X - 4 ? 0xFFAAAA : 0xFF7777);
         }
         drawString(fontRendererObj, "Project name (64 characters max)", width / 2 - 100, height - 96, 0xAAAAAA);
         drawString(
@@ -178,6 +179,15 @@ public final class GuiProjectList extends GuiKanbanScreen {
         String tabTip = tabs.tooltip(mouseX, mouseY);
         if (tabTip != null)
             drawHoveringText(java.util.Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
+    }
+
+    /** Rows are up to 520 wide, narrower on small screens. */
+    private int rowLeft() {
+        return width / 2 - Math.min(260, width / 2 - 16);
+    }
+
+    private int rowRight() {
+        return width - rowLeft();
     }
 
     /** A bar for the share of cards in the done column, with the percentage after it. */

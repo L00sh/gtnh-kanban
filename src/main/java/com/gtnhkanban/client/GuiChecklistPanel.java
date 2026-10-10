@@ -293,6 +293,17 @@ final class GuiChecklistPanel {
     }
 
     List<String> tooltip(int mouseX, int mouseY) {
+        if (mouseY >= top && mouseY < bottom && mouseX >= left + width - 81 && mouseX < left + width - 24) {
+            int row = (mouseY - top) / ROW_HEIGHT;
+            if (row < visible.size() && visible.get(row)
+                .isRequirement()) {
+                List<String> lines = new ArrayList<String>();
+                lines.add("Choose a recipe in NEI");
+                lines.add("§7Shift-click: recipe list, auto breakdown,");
+                lines.add("§7or remove this item's materials");
+                return lines;
+            }
+        }
         if (mouseY < top || mouseY >= bottom || mouseX < left || mouseX >= left + width - 185)
             return java.util.Collections.emptyList();
         int i = (mouseY - top) / ROW_HEIGHT;

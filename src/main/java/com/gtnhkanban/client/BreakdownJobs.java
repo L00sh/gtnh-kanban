@@ -38,7 +38,8 @@ public final class BreakdownJobs {
     private static final ArrayDeque<Job> QUEUE = new ArrayDeque<Job>();
     /** Recipes and material classes shared by every breakdown this session; cleared when leaving a world. */
     private static final CachingRecipeSource RECIPES = new CachingRecipeSource(new NeiRecipeSource(), 4000);
-    private static RecipePreference preference = RecipePreference.CRAFTING_TABLE;
+    /** Automatic breakdowns prefer crafting table recipes; other recipes are chosen per item, in NEI. */
+    private static final RecipePreference preference = RecipePreference.CRAFTING_TABLE;
     private static int nextUploadId;
     private static String notice = "";
 
@@ -78,14 +79,6 @@ public final class BreakdownJobs {
     }
 
     private BreakdownJobs() {}
-
-    static RecipePreference getPreference() {
-        return preference;
-    }
-
-    static void setPreference(RecipePreference value) {
-        preference = value == null ? RecipePreference.CRAFTING_TABLE : value;
-    }
 
     /** Adds {@code item} to the card with its full breakdown, or plainly when it has nothing to break down. */
     static void addWithBreakdown(UUID projectId, UUID cardId, ItemKey item, int quantity) {

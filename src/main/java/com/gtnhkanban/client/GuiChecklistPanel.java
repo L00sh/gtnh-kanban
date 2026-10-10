@@ -28,7 +28,10 @@ import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
 import com.gtnhkanban.network.message.C2SSetTaskDone;
 
-/** Scrollable checklist with independently hit-tested controls and nested material rows. */
+/**
+ * Scrollable checklist with independently hit-tested controls and nested material rows. A card shows two: one with
+ * its tasks, one with its items (base material totals, the item tree, then tools and equipment).
+ */
 final class GuiChecklistPanel {
 
     interface RecipeAction {
@@ -41,6 +44,7 @@ final class GuiChecklistPanel {
     private final UUID projectId, cardId;
     private final RecipeAction recipeAction;
     private final int left, top, width, bottom;
+    private final boolean tasksOnly;
     /** Branches start collapsed; a full breakdown can be thousands of rows. */
     private final Set<UUID> expanded = new HashSet<UUID>();
     private boolean totalsOpen = true, toolsOpen;
@@ -94,8 +98,10 @@ final class GuiChecklistPanel {
 
     private int totalCount, toolCount;
 
+    /** @param tasksOnly list the card's tasks; otherwise its items */
     GuiChecklistPanel(Minecraft mc, UUID projectId, UUID cardId, int left, int top, int width, int bottom,
-        RecipeAction action) {
+        boolean tasksOnly, RecipeAction action) {
+        this.tasksOnly = tasksOnly;
         this.mc = mc;
         this.projectId = projectId;
         this.cardId = cardId;
@@ -148,20 +154,25 @@ final class GuiChecklistPanel {
         List<Row> rows = new ArrayList<Row>();
         totalCount = 0;
         toolCount = 0;
-        if (card != null && MaterialTotals.hasBreakdown(card.getRequirements())) {
-            List<MaterialTotals.Total> totals = MaterialTotals.of(card.getRequirements());
-            totalCount = totals.size();
-            rows.add(Row.header(false));
-            if (totalsOpen) for (MaterialTotals.Total total : totals) rows.add(Row.total(total));
-            List<MaterialTotals.Total> tools = toolsByKind(MaterialTotals.tools(card.getRequirements()));
+        if (card != null && tasksOnly) for (TaskView task : card.getTasks()) rows.add(Row.task(task));
+        else if (card != null) {
+            boolean breakdown = MaterialTotals.hasBreakdown(card.getRequirements());
+            if (breakdown) {
+                List<MaterialTotals.Total> totals = MaterialTotals.of(card.getRequirements());
+                totalCount = totals.size();
+                rows.add(Row.header(false));
+                if (totalsOpen) for (MaterialTotals.Total total : totals) rows.add(Row.total(total));
+            }
+            for (RequirementView requirement : card.getRequirements()) flatten(requirement, 0, rows);
+            // Tools and equipment come last, under the items that need them.
+            List<MaterialTotals.Total> tools = breakdown ? toolsByKind(MaterialTotals.tools(card.getRequirements()))
+                : new ArrayList<MaterialTotals.Total>();
             toolCount = tools.size();
             if (toolCount > 0) {
                 rows.add(Row.header(true));
                 if (toolsOpen) for (MaterialTotals.Total tool : tools) rows.add(Row.total(tool));
             }
         }
-        if (card != null) for (TaskView task : card.getTasks()) rows.add(Row.task(task));
-        if (card != null) for (RequirementView requirement : card.getRequirements()) flatten(requirement, 0, rows);
         scroll = Math.max(0, Math.min(scroll, Math.max(0, rows.size() - capacity())));
         visible = new ArrayList<Row>(rows.subList(scroll, Math.min(rows.size(), scroll + capacity())));
         Set<UUID> visibleRoots = new HashSet<UUID>();
@@ -205,8 +216,11 @@ final class GuiChecklistPanel {
     void draw(int mouseX, int mouseY) {
         refresh();
         Gui.drawRect(left - 2, top - 2, left + width + 2, bottom + 1, 0xAA111111);
-        if (visible.isEmpty()) mc.fontRenderer
-            .drawStringWithShadow("No tasks or items yet. Add a task or an item above.", left + 5, top + 5, 0xAAAAAA);
+        if (visible.isEmpty()) mc.fontRenderer.drawStringWithShadow(
+            tasksOnly ? "No tasks yet." : "No items yet. Use Add item.",
+            left + 5,
+            top + 5,
+            0xAAAAAA);
         for (int i = 0; i < visible.size(); i++) {
             Row row = visible.get(i);
             int y = top + i * ROW_HEIGHT + 2;

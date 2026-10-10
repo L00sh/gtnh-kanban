@@ -28,7 +28,8 @@ import com.gtnhkanban.network.message.C2SSetProjectIcon;
 /** The board: one scrollable column per server-wide column, with draggable cards. */
 public final class GuiKanbanBoard extends GuiKanbanScreen {
 
-    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6;
+    private static final int BACK = 1, MEMBERS = 2, SETTINGS = 3, ICON = 4, SCROLL_LEFT = 5, SCROLL_RIGHT = 6,
+        ACTIVITY = 7;
     private static final int TOP = KanbanFrame.contentTop();
     private static final int HEADER = 18;
     private static final int GAP = 4;
@@ -85,15 +86,17 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
                     .getIcon());
         tabs = new KanbanFrame.Tabs().add(BACK, "Projects", null, false, KanbanFrame.Color.PURPLE);
         addProjectTabs(tabs, projectId);
-        tabs.add(MEMBERS, "Members", null, false)
-            .addRight(SETTINGS, "Board settings", null, true)
-            .addRight(ICON, "Change project icon", icon, false);
+        tabs.addRight(SETTINGS, "Board settings", null, true)
+            .addRight(ICON, "Change project icon", icon, false)
+            .addRightLabel(MEMBERS, "Members", false)
+            .addRightLabel(ACTIVITY, "Activity", false);
         tabs.layout(fontRendererObj, width);
     }
 
     private void tabClicked(int id) {
         if (id == BACK) openProjects();
         else if (id == MEMBERS && projectId != null) mc.displayGuiScreen(new GuiProjectMembers(projectId, this));
+        else if (id == ACTIVITY && projectId != null) mc.displayGuiScreen(new GuiActivity(projectId, null, this));
         else if (id == SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
         else if (id == ICON && projectId != null) {
             mc.displayGuiScreen(new GuiItemPicker(this, "Choose a project icon", new GuiItemPicker.IconChoice() {

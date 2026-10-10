@@ -71,6 +71,8 @@ final class PacketData {
         writeString(buffer, project.getName());
         buffer.writeBoolean(project.isActorIsOwner());
         writeOptionalMaterial(buffer, project.getIcon());
+        buffer.writeInt(project.getCardCount());
+        buffer.writeInt(project.getDoneCount());
     }
 
     static ProjectSummary readProject(ByteBuf buffer) {
@@ -78,7 +80,9 @@ final class PacketData {
             readUuid(buffer),
             readString(buffer, 256),
             buffer.readBoolean(),
-            readOptionalMaterial(buffer));
+            readOptionalMaterial(buffer),
+            buffer.readInt(),
+            buffer.readInt());
     }
 
     static void writeSettings(ByteBuf buffer, BoardSettings settings) {

@@ -26,5 +26,7 @@ public enum RequestType {
     DELETE_COMMENT,
     SAVE_SETTINGS,
     LIST_PLAYER_NAMES,
-    SET_CARD_LINK
+    SET_CARD_LINK,
+    FETCH_ACTIVITY,
+    RESTORE_CARD
 }

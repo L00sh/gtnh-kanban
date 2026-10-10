@@ -11,8 +11,10 @@ import net.minecraft.nbt.NBTTagCompound;
 
 import org.junit.Test;
 
+import com.gtnhkanban.model.ActivityEntry;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardLink;
+import com.gtnhkanban.model.DeletedCard;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
@@ -116,6 +118,50 @@ public class KanbanNbtCodecTest {
                 .isEmpty());
         assertTrue(
             fromOlder.getLinks(CardLink.BLOCKED_BY)
+                .isEmpty());
+    }
+
+    @Test
+    public void roundTripsTheActivityLogAndDeletedCards() {
+        UUID actor = UUID.randomUUID();
+        KanbanProject project = new KanbanProject(UUID.randomUUID(), "History", actor);
+        KanbanCard gone = card("Pump", "Old one", BoardSettings.BACKLOG, "minecraft:furnace", 2, false);
+        gone.setNumber(7);
+        project.log(
+            new ActivityEntry(123L, actor, ActivityEntry.Kind.CARD_DELETED, gone.getId(), 7, "Pump", "From Backlog"));
+        project.keepDeleted(new DeletedCard(gone, 456L, actor));
+
+        NBTTagCompound encoded = new NBTTagCompound();
+        KanbanNbtCodec.writeProject(encoded, project);
+        KanbanProject decoded = KanbanNbtCodec.readProject(encoded);
+
+        ActivityEntry entry = decoded.getActivity()
+            .get(0);
+        assertEquals(ActivityEntry.Kind.CARD_DELETED, entry.getKind());
+        assertEquals(actor, entry.getActorId());
+        assertEquals(gone.getId(), entry.getCardId());
+        assertEquals("From Backlog", entry.getDetail());
+        DeletedCard kept = decoded.getDeleted()
+            .get(0);
+        assertEquals(456L, kept.getDeletedAt());
+        assertEquals(
+            "Old one",
+            kept.getCard()
+                .getDescription());
+        assertEquals(
+            7,
+            kept.getCard()
+                .getNumber());
+
+        // Saves from before the log existed have neither list.
+        encoded.removeTag("activity");
+        encoded.removeTag("deleted");
+        KanbanProject older = KanbanNbtCodec.readProject(encoded);
+        assertTrue(
+            older.getActivity()
+                .isEmpty());
+        assertTrue(
+            older.getDeleted()
                 .isEmpty());
     }
 

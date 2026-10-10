@@ -22,6 +22,8 @@ public final class GuiProjectList extends GuiKanbanScreen {
     private static final int NEXT = 3;
 
     private static final int TAB_PROJECTS = 10, TAB_SETTINGS = 11;
+    /** Project rows span this far either side of the centre. */
+    private static final int HALF_ROW = 180, ROW_TOP = 48, ROW = 20;
 
     private GuiTextField nameField;
     private int page;
@@ -73,36 +75,37 @@ public final class GuiProjectList extends GuiKanbanScreen {
             return;
         }
         nameField.mouseClicked(mouseX, mouseY, mouseButton);
-        if (mouseButton != 0 || mouseX < width / 2 - 135 || mouseX > width / 2 + 110) {
+        int left = width / 2 - HALF_ROW, right = width / 2 + HALF_ROW;
+        if (mouseButton != 0 || mouseX < left || mouseX >= right || mouseY < ROW_TOP) return;
+        int row = (mouseY - ROW_TOP) / ROW;
+        List<ProjectSummary> visible = PagedList.pageItems(KanbanClientState.getProjects(), page, PAGE_SIZE);
+        if (row >= visible.size()) return;
+        final ProjectSummary project = visible.get(row);
+        if (mouseX >= right - 42) {
+            if (!project.isActorIsOwner()) return;
+            mc.displayGuiScreen(
+                new GuiTypedConfirm(
+                    this,
+                    "Delete project '" + project.getName() + "'?",
+                    project.getName(),
+                    new Runnable() {
+
+                        @Override
+                        public void run() {
+                            KanbanNetwork.CHANNEL.sendToServer(new C2SDeleteProject(project.getId()));
+                        }
+                    }));
             return;
         }
-        int row = (mouseY - 48) / 20;
-        if (mouseY >= 48 && row >= 0) {
-            List<ProjectSummary> visible = PagedList.pageItems(KanbanClientState.getProjects(), page, PAGE_SIZE);
-            if (row < visible.size()) {
-                ProjectSummary project = visible.get(row);
-                if (mouseX >= width / 2 + 72 && project.isActorIsOwner()) {
-                    mc.displayGuiScreen(
-                        new GuiConfirmAction(this, "Delete project '" + project.getName() + "'?", new Runnable() {
-
-                            @Override
-                            public void run() {
-                                KanbanNetwork.CHANNEL.sendToServer(new C2SDeleteProject(project.getId()));
-                            }
-                        }));
-                } else if (mouseX < width / 2 + 60) {
-                    if (!OpenProjects.open(project.getId())) {
-                        KanbanClientState.setResult(
-                            false,
-                            "TOO_MANY_TABS",
-                            "Up to " + OpenProjects.MAX + " projects can be open. Close a tab first.");
-                        return;
-                    }
-                    KanbanNetwork.CHANNEL.sendToServer(new C2SFetchBoard(project.getId()));
-                    mc.displayGuiScreen(new GuiKanbanBoard(project.getId(), this));
-                }
-            }
+        if (!OpenProjects.open(project.getId())) {
+            KanbanClientState.setResult(
+                false,
+                "TOO_MANY_TABS",
+                "Up to " + OpenProjects.MAX + " projects can be open. Close a tab first.");
+            return;
         }
+        KanbanNetwork.CHANNEL.sendToServer(new C2SFetchBoard(project.getId()));
+        mc.displayGuiScreen(new GuiKanbanBoard(project.getId(), this));
     }
 
     @Override
@@ -127,34 +130,40 @@ public final class GuiProjectList extends GuiKanbanScreen {
         if (projects.isEmpty()) {
             drawCenteredString(fontRendererObj, "No projects yet. Create one below.", width / 2, 54, 0xAAAAAA);
         }
+        int left = width / 2 - HALF_ROW, right = width / 2 + HALF_ROW;
         for (int index = 0; index < projects.size(); index++) {
             ProjectSummary project = projects.get(index);
+            int y = ROW_TOP + index * ROW;
+            boolean hovered = mouseX >= left && mouseX < right && mouseY >= y && mouseY < y + ROW;
+            // Zebra stripes, lighter under the mouse.
+            drawRect(left, y, right, y + ROW, hovered ? 0x33FFFFFF : index % 2 == 0 ? 0x22FFFFFF : 0x11000000);
             net.minecraft.item.ItemStack icon = GuiKanbanBoard.iconStack(project.getIcon());
             if (icon != null) {
-                itemRender.renderItemAndEffectIntoGUI(
-                    fontRendererObj,
-                    mc.getTextureManager(),
-                    icon,
-                    width / 2 - 145,
-                    46 + index * 20);
+                itemRender.renderItemAndEffectIntoGUI(fontRendererObj, mc.getTextureManager(), icon, left + 2, y + 2);
                 net.minecraft.client.renderer.RenderHelper.disableStandardItemLighting();
                 org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_LIGHTING);
             }
             drawString(
                 fontRendererObj,
-                fontRendererObj.trimStringToWidth(project.getName(), 130),
-                width / 2 - 125,
-                50 + index * 20,
+                fontRendererObj.trimStringToWidth(project.getName(), 120),
+                left + 22,
+                y + 6,
                 0xFFFFFF);
+            int cards = project.getCardCount();
+            drawString(fontRendererObj, cards + (cards == 1 ? " card" : " cards"), left + 148, y + 6, 0xAAAAAA);
+            drawProgress(project, left + 200, y + 7);
             drawString(
                 fontRendererObj,
                 project.isActorIsOwner() ? "Owner" : "Member",
-                width / 2 + 12,
-                50 + index * 20,
-                0xAAAAAA);
-            if (project.isActorIsOwner()) {
-                drawString(fontRendererObj, "Delete", width / 2 + 72, 50 + index * 20, 0xFF7777);
-            }
+                left + 296,
+                y + 6,
+                project.isActorIsOwner() ? 0xFFAA00 : 0xAAAAAA);
+            if (project.isActorIsOwner()) drawString(
+                fontRendererObj,
+                "Delete",
+                right - 38,
+                y + 6,
+                hovered && mouseX >= right - 42 ? 0xFFAAAA : 0xFF7777);
         }
         drawString(fontRendererObj, "Project name (64 characters max)", width / 2 - 100, height - 96, 0xAAAAAA);
         drawString(
@@ -169,6 +178,17 @@ public final class GuiProjectList extends GuiKanbanScreen {
         String tabTip = tabs.tooltip(mouseX, mouseY);
         if (tabTip != null)
             drawHoveringText(java.util.Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
+    }
+
+    /** A bar for the share of cards in the done column, with the percentage after it. */
+    private void drawProgress(ProjectSummary project, int x, int y) {
+        int width = 60;
+        int total = project.getCardCount();
+        int percent = total == 0 ? 0 : project.getDoneCount() * 100 / total;
+        drawRect(x, y, x + width, y + 6, 0xFF333333);
+        if (total > 0)
+            drawRect(x, y, x + width * project.getDoneCount() / total, y + 6, percent == 100 ? 0xFF55CC55 : 0xFF4A90D9);
+        drawString(fontRendererObj, total == 0 ? "-" : percent + "%", x + width + 4, y - 1, 0xCCCCCC);
     }
 
     private int lastPage() {

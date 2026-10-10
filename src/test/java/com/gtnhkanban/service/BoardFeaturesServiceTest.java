@@ -17,7 +17,9 @@ import java.util.function.LongSupplier;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.gtnhkanban.api.ActivityLog;
 import com.gtnhkanban.api.CardView;
+import com.gtnhkanban.model.ActivityEntry;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardLink;
@@ -533,6 +535,83 @@ public class BoardFeaturesServiceTest {
         assertTrue(
             service.updateCard(OWNER, projectId, byMember.getId(), CardFields.of("Pump", "Owner's edit"))
                 .isSuccess());
+    }
+
+    @Test
+    public void theActivityLogRecordsChangesNewestFirst() {
+        CardView card = create("Boiler");
+        service.updateCard(
+            OWNER,
+            projectId,
+            card.getId(),
+            new CardFields("Big boiler", "", null, null, Priority.HIGH, null));
+        service.moveCard(MEMBER, projectId, card.getId(), BoardSettings.DONE);
+        service.addTask(MEMBER, projectId, card.getId(), "Fill water");
+
+        List<ActivityLog.Entry> entries = service.getActivity(MEMBER, projectId)
+            .getValue()
+            .getEntries();
+        assertEquals(ActivityEntry.Kind.TASKS, entries.get(0).kind);
+        assertEquals(ActivityEntry.Kind.CARD_MOVED, entries.get(1).kind);
+        assertEquals(MEMBER, entries.get(1).actorId);
+        assertTrue(entries.get(1).detail.endsWith("-> Done"));
+        assertEquals(ActivityEntry.Kind.CARD_EDITED, entries.get(2).kind);
+        assertTrue(entries.get(2).detail.contains("Renamed from \"Boiler\" to \"Big boiler\""));
+        assertTrue(entries.get(2).detail.contains("Priority: None -> High"));
+        assertEquals(ActivityEntry.Kind.CARD_CREATED, entries.get(3).kind);
+        assertFalse(
+            "Outsiders cannot read the log",
+            service.getActivity(OUTSIDER, projectId)
+                .isSuccess());
+    }
+
+    @Test
+    public void deletedCardsCanBeRestoredByTheirCreatorOrTheOwner() {
+        CardView byMember = service.createCard(MEMBER, projectId, "Pump", "")
+            .getValue();
+        CardView byOwner = create("Boiler");
+        service.addTask(MEMBER, projectId, byMember.getId(), "Prime it");
+        service.deleteCard(OWNER, projectId, byMember.getId());
+        service.deleteCard(MEMBER, projectId, byOwner.getId());
+
+        List<ActivityLog.Deleted> deleted = service.getActivity(MEMBER, projectId)
+            .getValue()
+            .getDeleted();
+        assertEquals(2, deleted.size());
+        assertEquals("Newest first", byOwner.getId(), deleted.get(0).cardId);
+        assertFalse("A member cannot restore the owner's card", deleted.get(0).canRestore);
+        assertTrue(deleted.get(1).canRestore);
+        assertEquals(
+            "RESTORE_NOT_ALLOWED",
+            service.restoreCard(MEMBER, projectId, byOwner.getId())
+                .getErrorCode());
+
+        CardView restored = service.restoreCard(MEMBER, projectId, byMember.getId())
+            .getValue();
+        assertEquals(byMember.getNumber(), restored.getNumber());
+        assertEquals(
+            "Restored whole, tasks included",
+            1,
+            restored.getTasks()
+                .size());
+        assertTrue(
+            service.restoreCard(OWNER, projectId, byOwner.getId())
+                .isSuccess());
+        assertEquals(
+            "CARD_NOT_FOUND",
+            service.restoreCard(OWNER, projectId, byOwner.getId())
+                .getErrorCode());
+    }
+
+    @Test
+    public void aRestoredCardWhoseNameWasTakenIsRenamed() {
+        CardView first = create("Boiler");
+        service.deleteCard(OWNER, projectId, first.getId());
+        create("Boiler");
+
+        CardView restored = service.restoreCard(OWNER, projectId, first.getId())
+            .getValue();
+        assertEquals("Boiler (restored)", restored.getTitle());
     }
 
     private CardView create(String title) {

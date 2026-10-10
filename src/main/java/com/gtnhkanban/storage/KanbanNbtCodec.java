@@ -10,6 +10,7 @@ import java.util.UUID;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 
+import com.gtnhkanban.model.ActivityEntry;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardComment;
@@ -17,6 +18,7 @@ import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardStatus;
 import com.gtnhkanban.model.CardTask;
 import com.gtnhkanban.model.CardType;
+import com.gtnhkanban.model.DeletedCard;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
@@ -71,6 +73,42 @@ public final class KanbanNbtCodec {
         target.setTag(CARDS, cards);
         target.setInteger("nextCardNumber", project.getNextCardNumber());
         if (project.getIcon() != null) target.setTag("icon", writeMaterial(project.getIcon()));
+
+        NBTTagList activity = new NBTTagList();
+        for (ActivityEntry entry : project.getActivity()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setLong("time", entry.getTime());
+            if (entry.getActorId() != null) tag.setString(
+                "actor",
+                entry.getActorId()
+                    .toString());
+            tag.setString(
+                "kind",
+                entry.getKind()
+                    .name());
+            if (entry.getCardId() != null) tag.setString(
+                "card",
+                entry.getCardId()
+                    .toString());
+            tag.setInteger("number", entry.getCardNumber());
+            tag.setString("title", entry.getCardTitle());
+            tag.setString("detail", entry.getDetail());
+            activity.appendTag(tag);
+        }
+        target.setTag("activity", activity);
+
+        NBTTagList deleted = new NBTTagList();
+        for (DeletedCard card : project.getDeleted()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setTag("card", writeCard(card.getCard()));
+            tag.setLong("deletedAt", card.getDeletedAt());
+            if (card.getDeletedBy() != null) tag.setString(
+                "deletedBy",
+                card.getDeletedBy()
+                    .toString());
+            deleted.appendTag(tag);
+        }
+        target.setTag("deleted", deleted);
     }
 
     public static KanbanProject readProject(NBTTagCompound source) {
@@ -108,6 +146,38 @@ public final class KanbanNbtCodec {
         KanbanProject project = new KanbanProject(projectId, source.getString(PROJECT_NAME), ownerId, memberIds, cards);
         project.setIcon(readOptionalMaterial(source, "icon", problems));
         numberCards(project, source.getInteger("nextCardNumber"), problems);
+
+        // Saves from before the activity log and deleted cards have neither list; both then read as empty.
+        NBTTagList activity = source.getTagList("activity", NBT_COMPOUND);
+        for (int index = 0; index < activity.tagCount(); index++) {
+            try {
+                NBTTagCompound tag = activity.getCompoundTagAt(index);
+                project.log(
+                    new ActivityEntry(
+                        tag.getLong("time"),
+                        readOptionalUuid(tag, "actor", problems),
+                        ActivityEntry.Kind.fromName(tag.getString("kind")),
+                        readOptionalUuid(tag, "card", problems),
+                        tag.getInteger("number"),
+                        tag.getString("title"),
+                        tag.getString("detail")));
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable activity entry in project " + projectId + ": " + exception);
+            }
+        }
+        NBTTagList deleted = source.getTagList("deleted", NBT_COMPOUND);
+        for (int index = 0; index < deleted.tagCount(); index++) {
+            try {
+                NBTTagCompound tag = deleted.getCompoundTagAt(index);
+                project.keepDeleted(
+                    new DeletedCard(
+                        readCard(tag.getCompoundTag("card"), problems),
+                        tag.getLong("deletedAt"),
+                        readOptionalUuid(tag, "deletedBy", problems)));
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable deleted card in project " + projectId + ": " + exception);
+            }
+        }
         return project;
     }
 

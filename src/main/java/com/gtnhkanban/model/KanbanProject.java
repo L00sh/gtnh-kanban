@@ -17,6 +17,13 @@ public final class KanbanProject {
     private final List<KanbanCard> cards;
     private int nextCardNumber = 1;
     private ItemKey icon;
+    /** Oldest first, at most {@link #MAX_ACTIVITY} entries. */
+    private final List<ActivityEntry> activity = new ArrayList<ActivityEntry>();
+    /** Oldest first, at most {@link #MAX_DELETED} cards. */
+    private final List<DeletedCard> deleted = new ArrayList<DeletedCard>();
+
+    public static final int MAX_ACTIVITY = 300;
+    public static final int MAX_DELETED = 50;
 
     public KanbanProject(UUID id, String name, UUID ownerId) {
         this(id, name, ownerId, Collections.<UUID>emptySet(), Collections.<KanbanCard>emptyList());
@@ -146,6 +153,35 @@ public final class KanbanProject {
             }
         }, columnId, before), card);
         return true;
+    }
+
+    public List<ActivityEntry> getActivity() {
+        return Collections.unmodifiableList(activity);
+    }
+
+    /** Adds an entry, dropping the oldest once the log is full. */
+    public void log(ActivityEntry entry) {
+        activity.add(entry);
+        while (activity.size() > MAX_ACTIVITY) activity.remove(0);
+    }
+
+    public List<DeletedCard> getDeleted() {
+        return Collections.unmodifiableList(deleted);
+    }
+
+    /** Keeps a deleted card for restoring, forgetting the oldest once there are too many. */
+    public void keepDeleted(DeletedCard card) {
+        deleted.add(card);
+        while (deleted.size() > MAX_DELETED) deleted.remove(0);
+    }
+
+    /** Takes a deleted card out of the kept ones; null if it is not there. */
+    public DeletedCard takeDeleted(UUID cardId) {
+        for (int i = 0; i < deleted.size(); i++) if (deleted.get(i)
+            .getCard()
+            .getId()
+            .equals(cardId)) return deleted.remove(i);
+        return null;
     }
 
     public KanbanCard findCard(UUID cardId) {

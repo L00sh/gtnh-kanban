@@ -38,7 +38,7 @@ import com.gtnhkanban.service.BoardValidator;
 public final class GuiCardDetail extends GuiKanbanScreen {
 
     private static final int SAVE = 1, BACK = 2, ADD_REQUIREMENT = 4, PIN = 5, DELETE = 6, ASSIGNEES = 7,
-        REGENERATE = 9, ICON = 13, ADD_TASK = 15, EDIT_DEPENDS = 16, EDIT_BLOCKERS = 17;
+        REGENERATE = 9, ICON = 13, ADD_TASK = 15, EDIT_DEPENDS = 16, EDIT_BLOCKERS = 17, HISTORY = 18;
     private static final int MARGIN = 8, GAP = 10, TOP = 20, LINK_ROW = 10, MAX_LINK_ROWS = 4, MAX_ASSIGNEE_ROWS = 5;
     private final UUID projectId, cardId;
     private final GuiScreen boardScreen;
@@ -106,12 +106,13 @@ public final class GuiCardDetail extends GuiKanbanScreen {
 
         buttonList.clear();
         buttonList.add(new GuiButton(ICON, leftX + leftW - 20, TOP - 1, 20, 20, ""));
-        int barX = width / 2 - 160;
+        int barX = width / 2 - (cardId == null ? 77 : 200);
         buttonList.add(new GuiButton(SAVE, barX, height - 24, 75, 20, cardId == null ? "Create" : "Save"));
         buttonList.add(new GuiButton(BACK, barX + 80, height - 24, 75, 20, "Board"));
         if (cardId != null) {
             buttonList.add(new GuiButton(PIN, barX + 160, height - 24, 75, 20, "Pin to HUD"));
-            buttonList.add(new GuiButton(DELETE, barX + 240, height - 24, 80, 20, "Delete card"));
+            buttonList.add(new GuiButton(HISTORY, barX + 240, height - 24, 75, 20, "History"));
+            buttonList.add(new GuiButton(DELETE, barX + 320, height - 24, 80, 20, "Delete card"));
 
             int row = descriptionTop + descriptionEditor.height() + 5;
             int half = (leftW - 4) / 2;
@@ -346,6 +347,7 @@ public final class GuiCardDetail extends GuiKanbanScreen {
         else if (button.id == ADD_REQUIREMENT) mc.displayGuiScreen(new GuiItemPicker(projectId, cardId, this));
         else if (button.id == ASSIGNEES) mc.displayGuiScreen(new GuiCardAssignees(projectId, cardId, this));
         else if (button.id == REGENERATE) BreakdownJobs.regenerateAll(projectId, cardId);
+        else if (button.id == HISTORY) mc.displayGuiScreen(new GuiActivity(projectId, cardId, this));
         else if (button.id == EDIT_DEPENDS)
             mc.displayGuiScreen(new GuiCardLinkPicker(projectId, cardId, CardLink.DEPENDS_ON, this));
         else if (button.id == EDIT_BLOCKERS)

@@ -13,6 +13,7 @@ import net.minecraft.nbt.NBTTagList;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardComment;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardStatus;
 import com.gtnhkanban.model.CardTask;
 import com.gtnhkanban.model.CardType;
@@ -196,6 +197,8 @@ public final class KanbanNbtCodec {
             assigned.appendTag(member);
         }
         target.setTag("assignees", assigned);
+        target.setTag("dependsOn", writeIds(card.getLinks(CardLink.DEPENDS_ON)));
+        target.setTag("blockedBy", writeIds(card.getLinks(CardLink.BLOCKED_BY)));
         target.setString(CARD_TITLE, card.getTitle());
         target.setString(CARD_DESCRIPTION, card.getDescription());
         target.setString(
@@ -299,7 +302,32 @@ public final class KanbanNbtCodec {
                 problems.add("Skipped unreadable assignee on card " + cardId + ": " + exception);
             }
         }
+        // Saves from before card links have neither list; both then read as empty.
+        readLinks(source, "dependsOn", CardLink.DEPENDS_ON, card, problems);
+        readLinks(source, "blockedBy", CardLink.BLOCKED_BY, card, problems);
         return card;
+    }
+
+    private static NBTTagList writeIds(Iterable<UUID> ids) {
+        NBTTagList list = new NBTTagList();
+        for (UUID id : ids) {
+            NBTTagCompound entry = new NBTTagCompound();
+            entry.setString("id", id.toString());
+            list.appendTag(entry);
+        }
+        return list;
+    }
+
+    private static void readLinks(NBTTagCompound source, String key, CardLink link, KanbanCard card,
+        List<String> problems) {
+        NBTTagList linked = source.getTagList(key, NBT_COMPOUND);
+        for (int index = 0; index < linked.tagCount(); index++) {
+            try {
+                card.setLinked(link, readUuid(linked.getCompoundTagAt(index), "id"), true);
+            } catch (RuntimeException exception) {
+                problems.add("Skipped unreadable card link on card " + card.getId() + ": " + exception);
+            }
+        }
     }
 
     private static NBTTagCompound writeRequirement(ItemRequirement requirement) {

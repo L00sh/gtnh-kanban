@@ -11,6 +11,8 @@ import java.util.UUID;
 public final class KanbanCard {
 
     private final Set<UUID> assigneeIds = new LinkedHashSet<UUID>();
+    private final Set<UUID> dependencyIds = new LinkedHashSet<UUID>();
+    private final Set<UUID> blockerIds = new LinkedHashSet<UUID>();
     private final UUID id;
     private String title;
     private String description;
@@ -135,6 +137,17 @@ public final class KanbanCard {
     public void setAssigned(UUID memberId, boolean assigned) {
         if (assigned) assigneeIds.add(Objects.requireNonNull(memberId, "memberId"));
         else assigneeIds.remove(memberId);
+    }
+
+    /** The cards this one links to in the given way, in the order they were added. */
+    public Set<UUID> getLinks(CardLink link) {
+        return Collections.unmodifiableSet(link == CardLink.DEPENDS_ON ? dependencyIds : blockerIds);
+    }
+
+    public void setLinked(CardLink link, UUID cardId, boolean linked) {
+        Set<UUID> target = link == CardLink.DEPENDS_ON ? dependencyIds : blockerIds;
+        if (linked) target.add(Objects.requireNonNull(cardId, "cardId"));
+        else target.remove(cardId);
     }
 
     public int requirementCount() {

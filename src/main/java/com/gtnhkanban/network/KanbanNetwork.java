@@ -11,6 +11,7 @@ import net.minecraftforge.fluids.FluidRegistry;
 import com.gtnhkanban.KanbanMod;
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.MaterialNbt;
 import com.gtnhkanban.network.message.C2SAddComment;
@@ -32,6 +33,7 @@ import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
 import com.gtnhkanban.network.message.C2SSaveSettings;
 import com.gtnhkanban.network.message.C2SSetCardAssigned;
+import com.gtnhkanban.network.message.C2SSetCardLink;
 import com.gtnhkanban.network.message.C2SSetProjectIcon;
 import com.gtnhkanban.network.message.C2SSetRequirementComplete;
 import com.gtnhkanban.network.message.C2SSetRequirementQuantity;
@@ -105,6 +107,7 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new DeleteCommentHandler(), C2SDeleteComment.class, 26, Side.SERVER);
         CHANNEL.registerMessage(new SaveSettingsHandler(), C2SSaveSettings.class, 27, Side.SERVER);
         CHANNEL.registerMessage(new ListPlayerNamesHandler(), C2SListPlayerNames.class, 28, Side.SERVER);
+        CHANNEL.registerMessage(new SetCardLinkHandler(), C2SSetCardLink.class, 30, Side.SERVER);
     }
 
     /** Drops unfinished uploads from a stopped server. */
@@ -330,6 +333,15 @@ public final class KanbanNetwork {
                         request.getEntryId(),
                         request.isComplete());
                     break;
+                case SET_CARD_LINK:
+                    result = service.setCardLink(
+                        actorId,
+                        projectId,
+                        request.getCardId(),
+                        request.getEntryId(),
+                        CardLink.fromOrdinal(request.getQuantity()),
+                        request.isComplete());
+                    break;
                 case SET_CARD_ASSIGNED:
                     result = service.setCardAssigned(
                         actorId,
@@ -398,6 +410,10 @@ public final class KanbanNetwork {
                     if (request.getType() == RequestType.SET_PROJECT_ICON) broadcastProjectLists();
                     broadcastBoard(projectId);
                 }
+            } else if (projectId != null && supportsClient(player)) {
+                // The client may already show the change (a dragged card, say); put its board back.
+                OperationResult<BoardSnapshot> board = service().getBoard(player.getUniqueID(), projectId);
+                if (board.isSuccess()) sendToClient(new S2CBoardSnapshot(board.getValue()), player);
             }
         }
 
@@ -488,6 +504,9 @@ public final class KanbanNetwork {
     }
 
     private static final class MoveCardHandler extends ServerRequestHandler {
+    }
+
+    private static final class SetCardLinkHandler extends ServerRequestHandler {
     }
 
     private static final class SetCardAssignedHandler extends ServerRequestHandler {

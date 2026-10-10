@@ -17,6 +17,7 @@ import org.lwjgl.input.Mouse;
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.model.BoardColumn;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.Priority;
@@ -51,6 +52,8 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
     /** Column whose scrollbar thumb is being dragged, and where on the thumb it was grabbed. */
     private UUID scrollDragColumn;
     private int scrollGrab;
+    /** Where the card under the mouse was drawn, to find its link counts. */
+    private int hoveredX, hoveredY, hoveredWidth;
 
     public GuiKanbanBoard(UUID projectId) {
         this(projectId, null);
@@ -367,6 +370,12 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         boolean sameColumn = card.getColumnId()
             .equals(target.getId());
         if (sameColumn && same(before, cardAfter(card, cardsIn(target.getId())))) return;
+        String waiting = sameColumn ? null : unfinishedDependencies(card, target.getId());
+        if (waiting != null) {
+            // The server would refuse it too; refusing here keeps the card from jumping there and back.
+            KanbanClientState.setResult(false, "DEPENDENCIES_NOT_DONE", "Finish " + waiting + " first.");
+            return;
+        }
         UUID beforeId = before == null ? null : before.getId();
         KanbanClientState.moveCardLocally(projectId, cardId, target.getId(), beforeId);
         KanbanClientState.setResult(
@@ -475,7 +484,14 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             statusY,
             0x888888);
         super.drawScreen(mouseX, mouseY, partialTicks);
-        if (hovered != null && !draggingCard) drawHoveringText(cardTooltip(hovered), mouseX, mouseY, fontRendererObj);
+        if (hovered != null && !draggingCard) {
+            CardLink link = linkBadgeAt(hovered, hoveredX, hoveredY, hoveredWidth, mouseX, mouseY);
+            drawHoveringText(
+                link == null ? cardTooltip(hovered) : linkTooltip(hovered, link),
+                mouseX,
+                mouseY,
+                fontRendererObj);
+        }
         String tabTip = tabs.tooltip(mouseX, mouseY);
         if (tabTip != null) drawHoveringText(Collections.singletonList(tabTip), mouseX, mouseY, fontRendererObj);
     }
@@ -515,7 +531,12 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
             drawCard(card, cardLeft, y, stack.width, dragged);
             if (mouseX >= cardLeft && mouseX < cardLeft + stack.width
                 && mouseY >= Math.max(y, cardsTop())
-                && mouseY < Math.min(y + stack.heights[i], bottom())) hovered = card;
+                && mouseY < Math.min(y + stack.heights[i], bottom())) {
+                hovered = card;
+                hoveredX = cardLeft;
+                hoveredY = y;
+                hoveredWidth = stack.width;
+            }
         }
         KanbanFrame.clip(mc, KanbanFrame.contentLeft(), TOP, areaWidth(), bottom() - TOP);
         if (hasScrollbar(stack)) drawScrollbar(index, column.getId(), stack, scroll, mouseX, mouseY);
@@ -601,14 +622,35 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         boolean prioritised = card.getPriority() != Priority.NONE;
         KanbanFrame.priorityIcon(mc, card.getPriority(), right, lineY + 4);
 
+        int[][] badges = linkBadges(card, right);
+        int metaRight = right - (prioritised ? (int) Math.ceil(KanbanFrame.iconSize(mc)) + 2 : 0);
+        for (CardLink link : CardLink.values()) {
+            int[] badge = badges[link.ordinal()];
+            if (badge == null) continue;
+            metaRight = Math.min(metaRight, badge[0] - 3);
+            // Blockers red, dependencies blue.
+            drawRect(
+                badge[0],
+                lineY + 11,
+                badge[0] + badge[1],
+                lineY + 21,
+                link == CardLink.BLOCKED_BY ? 0xFFB03030 : 0xFF2F62B5);
+            drawString(
+                fontRendererObj,
+                Integer.toString(
+                    card.getLinks(link)
+                        .size()),
+                badge[0] + 3,
+                lineY + 12,
+                0xFFFFFF);
+        }
+
         String meta = TimeText.ago(card.getCreatedAt(), System.currentTimeMillis());
         if (!card.getCreatorName()
             .isEmpty()) meta += (meta.isEmpty() ? "by " : " by ") + card.getCreatorName();
         drawString(
             fontRendererObj,
-            fontRendererObj.trimStringToWidth(
-                meta,
-                right - left - (prioritised ? (int) Math.ceil(KanbanFrame.iconSize(mc)) + 2 : 0)),
+            fontRendererObj.trimStringToWidth(meta, metaRight - left),
             left,
             lineY + 12,
             0x999999);
@@ -631,6 +673,79 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         }
     }
 
+    /**
+     * Where a card's link counts sit at the right of its "ago by" row, as {x, width} per {@link CardLink} ordinal (null
+     * when it has none): dependencies rightmost, blockers to their left.
+     */
+    private int[][] linkBadges(CardView card, int right) {
+        int[][] badges = new int[CardLink.values().length][];
+        int x = right;
+        for (CardLink link : new CardLink[] { CardLink.DEPENDS_ON, CardLink.BLOCKED_BY }) {
+            int count = card.getLinks(link)
+                .size();
+            if (count == 0) continue;
+            int width = fontRendererObj.getStringWidth(Integer.toString(count)) + 5;
+            x -= width;
+            badges[link.ordinal()] = new int[] { x, width };
+            x -= 2;
+        }
+        return badges;
+    }
+
+    /** The link count under the mouse on a card drawn at (x, y), or null. */
+    private CardLink linkBadgeAt(CardView card, int x, int y, int width, int mouseX, int mouseY) {
+        int right = x + width - KanbanFrame.CARD_RIGHT - 2;
+        int row = y + KanbanFrame.CARD_TOP + 6 + titleLines(card, width).size() * LINE_HEIGHT + 11;
+        if (mouseY < row || mouseY >= row + 10) return null;
+        int[][] badges = linkBadges(card, right);
+        for (CardLink link : CardLink.values()) {
+            int[] badge = badges[link.ordinal()];
+            if (badge != null && mouseX >= badge[0] && mouseX < badge[0] + badge[1]) return link;
+        }
+        return null;
+    }
+
+    private List<String> linkTooltip(CardView card, CardLink link) {
+        List<String> lines = new ArrayList<String>();
+        boolean blockers = link == CardLink.BLOCKED_BY;
+        lines.add(blockers ? "\u00a7cBlocked by" : "\u00a79Depends on \u00a77(must be done first)");
+        UUID done = doneColumn();
+        for (UUID id : card.getLinks(link)) {
+            CardView other = KanbanClientState.findCard(id);
+            if (other == null) continue;
+            boolean finished = other.getColumnId()
+                .equals(done);
+            lines.add(
+                (finished ? "\u00a7a\u2714 " : "\u00a7f") + "#"
+                    + other.getNumber()
+                    + " "
+                    + fontRendererObj.trimStringToWidth(other.getTitle(), 200));
+        }
+        return lines;
+    }
+
+    private UUID doneColumn() {
+        BoardSnapshot board = board();
+        return board == null ? null
+            : board.getSettings()
+                .doneColumn();
+    }
+
+    /** Names of the cards this one depends on that are not done, when moving it into the done column; else null. */
+    private String unfinishedDependencies(CardView card, UUID target) {
+        UUID done = doneColumn();
+        if (done == null || !done.equals(target)) return null;
+        List<String> waiting = new ArrayList<String>();
+        for (UUID id : card.getLinks(CardLink.DEPENDS_ON)) {
+            CardView other = KanbanClientState.findCard(id);
+            if (other != null && !done.equals(other.getColumnId()))
+                waiting.add("#" + other.getNumber() + " " + other.getTitle());
+        }
+        if (waiting.isEmpty()) return null;
+        return waiting.size() <= 3 ? String.join(", ", waiting)
+            : String.join(", ", waiting.subList(0, 3)) + " and " + (waiting.size() - 3) + " more";
+    }
+
     private void drawDragged(List<BoardColumn> columns) {
         CardView card = KanbanClientState.findCard(pressedCardId);
         if (card == null) return;
@@ -648,6 +763,13 @@ public final class GuiKanbanBoard extends GuiKanbanScreen {
         lines.add(
             "§7Priority: §f" + card.getPriority()
                 .getLabel());
+        for (CardLink link : CardLink.values()) {
+            int count = card.getLinks(link)
+                .size();
+            if (count > 0) lines.add(
+                (link == CardLink.BLOCKED_BY ? "§cBlocked by " : "§9Depends on ") + count
+                    + (count == 1 ? " card" : " cards"));
+        }
         lines.add(
             "§7Created: §f" + TimeText.full(card.getCreatedAt())
                 + (card.getCreatorName()

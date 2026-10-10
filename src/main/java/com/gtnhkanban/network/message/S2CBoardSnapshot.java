@@ -14,8 +14,10 @@ import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.api.RequirementView;
 import com.gtnhkanban.api.TaskView;
 import com.gtnhkanban.model.BoardSettings;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.Priority;
+import com.gtnhkanban.service.KanbanService;
 
 import cpw.mods.fml.common.network.simpleimpl.IMessage;
 import io.netty.buffer.ByteBuf;
@@ -89,6 +91,12 @@ public final class S2CBoardSnapshot implements IMessage {
                 card.getRequirements()
                     .size());
             for (RequirementView requirement : card.getRequirements()) RequirementWireCodec.write(buffer, requirement);
+            for (CardLink link : CardLink.values()) {
+                buffer.writeInt(
+                    card.getLinks(link)
+                        .size());
+                for (UUID linked : card.getLinks(link)) PacketData.writeUuid(buffer, linked);
+            }
         }
     }
 
@@ -143,6 +151,13 @@ public final class S2CBoardSnapshot implements IMessage {
             for (int requirementIndex = 0; requirementIndex < requirementCount; requirementIndex++) {
                 requirements.add(RequirementWireCodec.read(buffer, 1, remaining));
             }
+            List<List<UUID>> links = new ArrayList<List<UUID>>();
+            for (int link = 0; link < CardLink.values().length; link++) {
+                int linkCount = readCount(buffer, KanbanService.MAX_CARD_LINKS);
+                List<UUID> linked = new ArrayList<UUID>(linkCount);
+                for (int linkIndex = 0; linkIndex < linkCount; linkIndex++) linked.add(PacketData.readUuid(buffer));
+                links.add(linked);
+            }
             if (column == null) column = settings.firstColumn();
             cards.add(
                 new CardView(
@@ -160,7 +175,9 @@ public final class S2CBoardSnapshot implements IMessage {
                     requirements,
                     assignees,
                     tasks,
-                    comments));
+                    comments,
+                    links.get(CardLink.DEPENDS_ON.ordinal()),
+                    links.get(CardLink.BLOCKED_BY.ordinal())));
         }
         snapshot = new BoardSnapshot(project, members, cards, settings);
     }

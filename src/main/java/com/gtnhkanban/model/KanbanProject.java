@@ -118,7 +118,10 @@ public final class KanbanProject {
 
     public boolean removeCard(UUID cardId) {
         KanbanCard card = findCard(cardId);
-        return card != null && cards.remove(card);
+        if (card == null || !cards.remove(card)) return false;
+        // Nothing may keep pointing at a card that is gone.
+        for (KanbanCard other : cards) for (CardLink link : CardLink.values()) other.setLinked(link, cardId, false);
+        return true;
     }
 
     /**

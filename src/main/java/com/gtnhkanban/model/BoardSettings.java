@@ -62,6 +62,13 @@ public final class BoardSettings {
             .getId();
     }
 
+    /** The column that means finished: the Done column, or the last column if it was removed. */
+    public UUID doneColumn() {
+        return hasColumn(DONE) ? DONE
+            : columns.get(columns.size() - 1)
+                .getId();
+    }
+
     public boolean hasColumn(UUID id) {
         for (BoardColumn column : columns) if (column.getId()
             .equals(id)) return true;

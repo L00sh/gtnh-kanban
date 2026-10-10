@@ -3,6 +3,7 @@ package com.gtnhkanban.service;
 import java.nio.charset.StandardCharsets;
 
 import com.gtnhkanban.model.CardComment;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardTask;
 import com.gtnhkanban.model.ItemRequirement;
 import com.gtnhkanban.model.KanbanCard;
@@ -35,7 +36,11 @@ final class BoardSizeBudget {
         long bytes = 37 + text(card.getTitle())
             + text(card.getDescription())
             + 17L * card.getAssigneeIds()
-                .size();
+                .size()
+            + 17L * (card.getLinks(CardLink.DEPENDS_ON)
+                .size()
+                + card.getLinks(CardLink.BLOCKED_BY)
+                    .size());
         for (ItemRequirement row : card.getRequirements()) bytes += requirement(row);
         // Number, type, priority, creator name (<=128), timestamp and icon.
         bytes += 200;

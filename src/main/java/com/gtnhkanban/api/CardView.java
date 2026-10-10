@@ -8,6 +8,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.Priority;
 
@@ -29,6 +30,8 @@ public final class CardView {
     private final Set<UUID> assigneeIds;
     private final List<TaskView> tasks;
     private final List<CommentView> comments;
+    private final List<UUID> dependencyIds;
+    private final List<UUID> blockerIds;
 
     /** A minimal card, mainly for tests: no number, type, creator, icon, tasks or comments. */
     public CardView(UUID id, String title, String description, UUID columnId, List<RequirementView> requirements) {
@@ -53,6 +56,34 @@ public final class CardView {
     public CardView(UUID id, int number, String title, String description, UUID columnId, UUID typeId,
         Priority priority, UUID creatorId, String creatorName, long createdAt, ItemKey icon,
         List<RequirementView> requirements, Set<UUID> assigneeIds, List<TaskView> tasks, List<CommentView> comments) {
+        this(
+            id,
+            number,
+            title,
+            description,
+            columnId,
+            typeId,
+            priority,
+            creatorId,
+            creatorName,
+            createdAt,
+            icon,
+            requirements,
+            assigneeIds,
+            tasks,
+            comments,
+            Collections.<UUID>emptyList(),
+            Collections.<UUID>emptyList());
+    }
+
+    /**
+     * @param dependencyIds cards that must be done before this one can be
+     * @param blockerIds    cards holding this one up
+     */
+    public CardView(UUID id, int number, String title, String description, UUID columnId, UUID typeId,
+        Priority priority, UUID creatorId, String creatorName, long createdAt, ItemKey icon,
+        List<RequirementView> requirements, Set<UUID> assigneeIds, List<TaskView> tasks, List<CommentView> comments,
+        List<UUID> dependencyIds, List<UUID> blockerIds) {
         this.id = Objects.requireNonNull(id, "id");
         this.number = number;
         this.title = Objects.requireNonNull(title, "title");
@@ -69,6 +100,8 @@ public final class CardView {
         this.assigneeIds = Collections.unmodifiableSet(new LinkedHashSet<UUID>(assigneeIds));
         this.tasks = Collections.unmodifiableList(new ArrayList<TaskView>(tasks));
         this.comments = Collections.unmodifiableList(new ArrayList<CommentView>(comments));
+        this.dependencyIds = Collections.unmodifiableList(new ArrayList<UUID>(dependencyIds));
+        this.blockerIds = Collections.unmodifiableList(new ArrayList<UUID>(blockerIds));
     }
 
     public CardView withColumn(UUID column) {
@@ -87,7 +120,9 @@ public final class CardView {
             requirements,
             assigneeIds,
             tasks,
-            comments);
+            comments,
+            dependencyIds,
+            blockerIds);
     }
 
     public CardView withRequirements(List<RequirementView> rows) {
@@ -106,7 +141,9 @@ public final class CardView {
             rows,
             assigneeIds,
             tasks,
-            comments);
+            comments,
+            dependencyIds,
+            blockerIds);
     }
 
     public CardView withAssignees(Set<UUID> assignees) {
@@ -125,7 +162,9 @@ public final class CardView {
             requirements,
             assignees,
             tasks,
-            comments);
+            comments,
+            dependencyIds,
+            blockerIds);
     }
 
     public CardView withTasks(List<TaskView> taskViews) {
@@ -144,7 +183,14 @@ public final class CardView {
             requirements,
             assigneeIds,
             taskViews,
-            comments);
+            comments,
+            dependencyIds,
+            blockerIds);
+    }
+
+    /** The cards linked from this one in the given way, in the order they were added. */
+    public List<UUID> getLinks(CardLink link) {
+        return link == CardLink.DEPENDS_ON ? dependencyIds : blockerIds;
     }
 
     public UUID getId() {

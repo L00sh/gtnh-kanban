@@ -20,6 +20,7 @@ import org.junit.Test;
 import com.gtnhkanban.api.CardView;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.model.ItemKey;
 import com.gtnhkanban.model.KanbanProject;
@@ -406,6 +407,132 @@ public class BoardFeaturesServiceTest {
             service.listAccessibleProjects(OWNER)
                 .get(0)
                 .getIcon());
+    }
+
+    @Test
+    public void aCardCannotBeDoneUntilEverythingItDependsOnIsDone() {
+        CardView boiler = create("Boiler");
+        CardView pump = create("Pump");
+        assertTrue(
+            service.setCardLink(MEMBER, projectId, boiler.getId(), pump.getId(), CardLink.DEPENDS_ON, true)
+                .isSuccess());
+
+        OperationResult<CardView> early = service.moveCard(MEMBER, projectId, boiler.getId(), BoardSettings.DONE);
+        assertFalse(early.isSuccess());
+        assertEquals("DEPENDENCIES_NOT_DONE", early.getErrorCode());
+        assertTrue(
+            early.getMessage()
+                .contains("#" + pump.getNumber() + " Pump"));
+        assertFalse(
+            "Saving the card into Done is refused the same way",
+            service
+                .updateCard(
+                    OWNER,
+                    projectId,
+                    boiler.getId(),
+                    new CardFields("Boiler", "", BoardSettings.DONE, null, Priority.NONE, null))
+                .isSuccess());
+
+        assertTrue(
+            service.moveCard(MEMBER, projectId, pump.getId(), BoardSettings.DONE)
+                .isSuccess());
+        assertTrue(
+            service.moveCard(MEMBER, projectId, boiler.getId(), BoardSettings.DONE)
+                .isSuccess());
+    }
+
+    @Test
+    public void blockersNeverStopAMove() {
+        CardView boiler = create("Boiler");
+        CardView pump = create("Pump");
+        service.setCardLink(MEMBER, projectId, boiler.getId(), pump.getId(), CardLink.BLOCKED_BY, true);
+
+        assertTrue(
+            service.moveCard(MEMBER, projectId, boiler.getId(), BoardSettings.DONE)
+                .isSuccess());
+        assertEquals(
+            Collections.singletonList(pump.getId()),
+            stored.get(projectId)
+                .findCard(boiler.getId())
+                .getLinks(CardLink.BLOCKED_BY)
+                .stream()
+                .collect(java.util.stream.Collectors.toList()));
+    }
+
+    @Test
+    public void dependenciesCannotLoopOrPointAtTheCardItself() {
+        CardView a = create("A"), b = create("B"), c = create("C");
+        service.setCardLink(OWNER, projectId, a.getId(), b.getId(), CardLink.DEPENDS_ON, true);
+        service.setCardLink(OWNER, projectId, b.getId(), c.getId(), CardLink.DEPENDS_ON, true);
+
+        OperationResult<CardView> loop = service
+            .setCardLink(OWNER, projectId, c.getId(), a.getId(), CardLink.DEPENDS_ON, true);
+        assertEquals("DEPENDENCY_LOOP", loop.getErrorCode());
+        assertEquals(
+            "INVALID_LINK",
+            service.setCardLink(OWNER, projectId, a.getId(), a.getId(), CardLink.BLOCKED_BY, true)
+                .getErrorCode());
+        assertTrue(
+            "Blockers may point back; they are only a note",
+            service.setCardLink(OWNER, projectId, c.getId(), a.getId(), CardLink.BLOCKED_BY, true)
+                .isSuccess());
+        assertFalse(
+            "Outsiders cannot link cards",
+            service.setCardLink(OUTSIDER, projectId, c.getId(), b.getId(), CardLink.BLOCKED_BY, true)
+                .isSuccess());
+    }
+
+    @Test
+    public void deletingACardRemovesLinksToIt() {
+        CardView boiler = create("Boiler");
+        CardView pump = create("Pump");
+        service.setCardLink(OWNER, projectId, boiler.getId(), pump.getId(), CardLink.DEPENDS_ON, true);
+        service.setCardLink(OWNER, projectId, boiler.getId(), pump.getId(), CardLink.BLOCKED_BY, true);
+
+        service.deleteCard(OWNER, projectId, pump.getId());
+
+        assertTrue(
+            stored.get(projectId)
+                .findCard(boiler.getId())
+                .getLinks(CardLink.DEPENDS_ON)
+                .isEmpty());
+        assertTrue(
+            stored.get(projectId)
+                .findCard(boiler.getId())
+                .getLinks(CardLink.BLOCKED_BY)
+                .isEmpty());
+        assertTrue(
+            service.moveCard(OWNER, projectId, boiler.getId(), BoardSettings.DONE)
+                .isSuccess());
+    }
+
+    @Test
+    public void onlyTheCreatorOrOwnerCanChangeADescription() {
+        CardView byOwner = create("Boiler");
+        OperationResult<CardView> memberEdit = service.updateCard(
+            MEMBER,
+            projectId,
+            byOwner.getId(),
+            new CardFields("Boiler", "Changed", null, null, Priority.NONE, null));
+        assertEquals("DESCRIPTION_LOCKED", memberEdit.getErrorCode());
+        assertTrue(
+            "Other fields can still be edited by members",
+            service
+                .updateCard(
+                    MEMBER,
+                    projectId,
+                    byOwner.getId(),
+                    new CardFields("Big boiler", "", null, null, Priority.HIGH, null))
+                .isSuccess());
+
+        CardView byMember = service.createCard(MEMBER, projectId, "Pump", "")
+            .getValue();
+        assertTrue(
+            service.updateCard(MEMBER, projectId, byMember.getId(), CardFields.of("Pump", "Mine"))
+                .isSuccess());
+        assertTrue(
+            service.updateCard(OWNER, projectId, byMember.getId(), CardFields.of("Pump", "Owner's edit"))
+                .isSuccess());
     }
 
     private CardView create(String title) {

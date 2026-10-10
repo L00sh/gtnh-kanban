@@ -18,6 +18,7 @@ import com.gtnhkanban.api.TaskView;
 import com.gtnhkanban.model.BoardColumn;
 import com.gtnhkanban.model.BoardSettings;
 import com.gtnhkanban.model.CardComment;
+import com.gtnhkanban.model.CardLink;
 import com.gtnhkanban.model.CardTask;
 import com.gtnhkanban.model.CardType;
 import com.gtnhkanban.model.ItemKey;
@@ -36,6 +37,8 @@ public final class KanbanService {
     /** Deepest checklist level; root rows are level 1. Matches the save and wire decoders. */
     public static final int MAX_TREE_LEVEL = 16;
     public static final int MAX_CARD_ROWS = 4096;
+    /** Most cards one card may depend on, and most it may list as blockers. */
+    public static final int MAX_CARD_LINKS = 64;
 
     private final ProjectRepository projects;
     private final ProfileResolver profiles;
@@ -219,6 +222,14 @@ public final class KanbanService {
         OperationResult<CardFields> valid = validateFields(project, cardId, fields);
         if (!valid.isSuccess()) return failure(valid);
         CardFields checked = valid.getValue();
+        if (!checked.description.equals(card.getDescription()) && !canEditDescription(project, card, actorId))
+            return OperationResult.failure(
+                "DESCRIPTION_LOCKED",
+                "Only the card's creator or the board owner can change its description.");
+        if (checked.columnId != null) {
+            OperationResult<Void> movable = checkMovable(project, card, checked.columnId);
+            if (!movable.isSuccess()) return failure(movable);
+        }
         long textGrowth = BoardSizeBudget.text(checked.title) + BoardSizeBudget.text(checked.description)
             - BoardSizeBudget.text(card.getTitle())
             - BoardSizeBudget.text(card.getDescription());
@@ -287,11 +298,78 @@ public final class KanbanService {
         if (card == null) return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
         if (columnId == null || !projects.getSettings()
             .hasColumn(columnId)) return OperationResult.failure("INVALID_COLUMN", "That column no longer exists.");
+        OperationResult<Void> movable = checkMovable(authorized.getValue(), card, columnId);
+        if (!movable.isSuccess()) return failure(movable);
         if (!authorized.getValue()
             .moveCard(cardId, columnId, beforeCardId))
             return OperationResult.failure("INVALID_POSITION", "That card moved meanwhile. Try again.");
         projects.saveProject(authorized.getValue());
         return OperationResult.success(cardView(card));
+    }
+
+    /** True when the actor created the card or owns the board; cards without a known creator are the owner's. */
+    public static boolean canEditDescription(KanbanProject project, KanbanCard card, UUID actorId) {
+        return actorId != null && (project.getOwnerId()
+            .equals(actorId) || actorId.equals(card.getCreatorId()));
+    }
+
+    /** A card may enter the done column only once every card it depends on is done. */
+    private OperationResult<Void> checkMovable(KanbanProject project, KanbanCard card, UUID columnId) {
+        UUID done = projects.getSettings()
+            .doneColumn();
+        if (!done.equals(columnId) || done.equals(card.getColumnId())) return OperationResult.success(null);
+        List<String> waiting = new ArrayList<String>();
+        for (UUID dependencyId : card.getLinks(CardLink.DEPENDS_ON)) {
+            KanbanCard dependency = project.findCard(dependencyId);
+            if (dependency != null && !done.equals(dependency.getColumnId()))
+                waiting.add("#" + dependency.getNumber() + " " + dependency.getTitle());
+        }
+        if (waiting.isEmpty()) return OperationResult.success(null);
+        String list = waiting.size() <= 3 ? String.join(", ", waiting)
+            : String.join(", ", waiting.subList(0, 3)) + " and " + (waiting.size() - 3) + " more";
+        return OperationResult.failure("DEPENDENCIES_NOT_DONE", "Finish " + list + " first.");
+    }
+
+    /**
+     * Links or unlinks {@code otherCardId} from a card. Depends-on links may not form a loop, since no card in it could
+     * ever be finished.
+     */
+    public OperationResult<CardView> setCardLink(UUID actorId, UUID projectId, UUID cardId, UUID otherCardId,
+        CardLink link, boolean linked) {
+        OperationResult<KanbanProject> authorized = requireMember(actorId, projectId);
+        if (!authorized.isSuccess()) return failure(authorized);
+        KanbanProject project = authorized.getValue();
+        KanbanCard card = findCard(project, cardId);
+        KanbanCard other = findCard(project, otherCardId);
+        if (card == null || other == null || link == null)
+            return OperationResult.failure("CARD_NOT_FOUND", "That card does not exist.");
+        if (linked) {
+            if (card == other) return OperationResult.failure("INVALID_LINK", "A card cannot be linked to itself.");
+            if (card.getLinks(link)
+                .contains(otherCardId)) return OperationResult.success(cardView(project, card));
+            if (card.getLinks(link)
+                .size() >= MAX_CARD_LINKS)
+                return OperationResult.failure("TOO_MANY_LINKS", "A card can list at most " + MAX_CARD_LINKS + ".");
+            if (link == CardLink.DEPENDS_ON && dependsOn(project, other, cardId, new java.util.HashSet<UUID>()))
+                return OperationResult.failure(
+                    "DEPENDENCY_LOOP",
+                    "#" + other.getNumber() + " already depends on this card, so neither could be finished.");
+            if (!BoardSizeBudget.fits(project, 17)) return boardTooLarge();
+        }
+        card.setLinked(link, otherCardId, linked);
+        projects.saveProject(project);
+        return OperationResult.success(cardView(project, card));
+    }
+
+    /** True when {@code card} depends on {@code target}, directly or through other cards. */
+    private boolean dependsOn(KanbanProject project, KanbanCard card, UUID target, java.util.Set<UUID> seen) {
+        if (!seen.add(card.getId())) return false;
+        for (UUID next : card.getLinks(CardLink.DEPENDS_ON)) {
+            if (next.equals(target)) return true;
+            KanbanCard nextCard = project.findCard(next);
+            if (nextCard != null && dependsOn(project, nextCard, target, seen)) return true;
+        }
+        return false;
     }
 
     public OperationResult<Void> setProjectIcon(UUID actorId, UUID projectId, ItemKey icon) {
@@ -758,7 +836,7 @@ public final class KanbanService {
         }
         List<CardView> cards = new ArrayList<CardView>();
         for (KanbanCard card : project.getCards()) {
-            cards.add(cardView(card));
+            cards.add(cardView(project, card));
         }
         return new BoardSnapshot(projectSummary(project, actorId), members, cards, projects.getSettings());
     }
@@ -773,6 +851,17 @@ public final class KanbanService {
     }
 
     private CardView cardView(KanbanCard card) {
+        return cardView(null, card);
+    }
+
+    /** With a project, links to cards no longer in it are left out. */
+    private CardView cardView(KanbanProject project, KanbanCard card) {
+        List<List<UUID>> links = new ArrayList<List<UUID>>();
+        for (CardLink link : CardLink.values()) {
+            List<UUID> linked = new ArrayList<UUID>();
+            for (UUID id : card.getLinks(link)) if (project == null || project.findCard(id) != null) linked.add(id);
+            links.add(linked);
+        }
         List<RequirementView> requirements = new ArrayList<RequirementView>();
         for (ItemRequirement requirement : card.getRequirements()) {
             requirements.add(requirementView(requirement));
@@ -804,7 +893,9 @@ public final class KanbanService {
             requirements,
             card.getAssigneeIds(),
             tasks,
-            comments);
+            comments,
+            links.get(CardLink.DEPENDS_ON.ordinal()),
+            links.get(CardLink.BLOCKED_BY.ordinal()));
     }
 
     private String nameOf(UUID playerId) {

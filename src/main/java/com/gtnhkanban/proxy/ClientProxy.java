@@ -72,6 +72,18 @@ public class ClientProxy extends CommonProxy {
     }
 
     @Override
+    public void receiveActivity(final com.gtnhkanban.api.ActivityLog log) {
+        Minecraft.getMinecraft()
+            .func_152344_a(new Runnable() {
+
+                @Override
+                public void run() {
+                    KanbanClientState.setActivity(log);
+                }
+            });
+    }
+
+    @Override
     public void receiveOperationResult(final boolean success, final String code, final String message) {
         Minecraft.getMinecraft()
             .func_152344_a(new Runnable() {

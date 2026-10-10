@@ -24,7 +24,7 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     private static final int NEXT = 4;
 
     private final UUID projectId;
-    private static final int TAB_PROJECTS = 10, TAB_MEMBERS = 12, TAB_SETTINGS = 13;
+    private static final int TAB_PROJECTS = 10, TAB_MEMBERS = 12, TAB_SETTINGS = 13, TAB_ACTIVITY = 14;
 
     /** Suggestions shown above the username box while it has focus. */
     private static final int MAX_SUGGESTIONS = 6;
@@ -106,8 +106,9 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
     private void rebuildTabs() {
         tabs = new KanbanFrame.Tabs().add(TAB_PROJECTS, "Projects", null, false, KanbanFrame.Color.PURPLE);
         addProjectTabs(tabs, null);
-        tabs.add(TAB_MEMBERS, "Members", null, true)
-            .addRight(TAB_SETTINGS, "Board settings", null, true);
+        tabs.addRight(TAB_SETTINGS, "Board settings", null, true)
+            .addRightLabel(TAB_MEMBERS, "Members", true)
+            .addRightLabel(TAB_ACTIVITY, "Activity", false);
         tabs.layout(fontRendererObj, width);
     }
 
@@ -135,6 +136,7 @@ public final class GuiProjectMembers extends GuiKanbanScreen {
         if (tab != null) {
             if (tab.id == TAB_PROJECTS) openProjects();
             else if (tab.id == TAB_SETTINGS) mc.displayGuiScreen(new GuiBoardSettings(this));
+            else if (tab.id == TAB_ACTIVITY) mc.displayGuiScreen(new GuiActivity(projectId, null, this));
             return;
         }
         List<String> suggestions = suggestions();

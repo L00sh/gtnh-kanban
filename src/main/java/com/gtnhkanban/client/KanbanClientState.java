@@ -228,6 +228,18 @@ public final class KanbanClientState {
     private static List<String> playerNames = Collections.emptyList();
 
     /** Usernames the owner could add to {@code projectId}, from the server. */
+    private static com.gtnhkanban.api.ActivityLog activity;
+
+    public static void setActivity(com.gtnhkanban.api.ActivityLog log) {
+        activity = log;
+    }
+
+    /** The last activity log received for the project, or null. */
+    public static com.gtnhkanban.api.ActivityLog getActivity(UUID projectId) {
+        return activity != null && activity.getProjectId()
+            .equals(projectId) ? activity : null;
+    }
+
     public static void setPlayerNames(UUID projectId, List<String> names) {
         playerNamesProject = projectId;
         playerNames = new ArrayList<String>(names);

@@ -146,6 +146,12 @@ final class KanbanFrame {
             return this;
         }
 
+        /** Adds a named tab on the right, left of the right tabs already added. */
+        Tabs addRightLabel(int id, String label, boolean selected) {
+            right.add(new Tab(id, label, null, null, false, selected));
+            return this;
+        }
+
         /** Adds a closable tab for an open project. */
         Tabs addProject(int id, UUID project, String label, ItemStack icon, boolean selected) {
             add(id, label, icon, selected);
@@ -160,7 +166,8 @@ final class KanbanFrame {
         void layout(FontRenderer font, int screenWidth) {
             int right = screenWidth - MARGIN - RIGHT_TAB_OFFSET;
             for (Tab tab : this.right) {
-                tab.width = tab.cog ? 33 : 27;
+                tab.width = !tab.label.isEmpty() ? Math.max(48, font.getStringWidth(tab.label) + 22)
+                    : tab.cog ? 33 : 27;
                 tab.x = right - tab.width;
                 right = tab.x - TAB_GAP / 2;
             }

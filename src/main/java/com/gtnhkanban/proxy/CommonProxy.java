@@ -29,4 +29,6 @@ public class CommonProxy {
     public void receiveOperationResult(boolean success, String code, String message) {}
 
     public void receivePlayerNames(java.util.UUID projectId, List<String> names) {}
+
+    public void receiveActivity(com.gtnhkanban.api.ActivityLog log) {}
 }

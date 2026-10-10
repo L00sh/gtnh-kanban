@@ -9,6 +9,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraftforge.fluids.FluidRegistry;
 
 import com.gtnhkanban.KanbanMod;
+import com.gtnhkanban.api.ActivityLog;
 import com.gtnhkanban.api.BoardSnapshot;
 import com.gtnhkanban.api.ProjectSummary;
 import com.gtnhkanban.model.CardLink;
@@ -26,11 +27,13 @@ import com.gtnhkanban.network.message.C2SDeleteProject;
 import com.gtnhkanban.network.message.C2SDeleteRequirement;
 import com.gtnhkanban.network.message.C2SDeleteTask;
 import com.gtnhkanban.network.message.C2SExpandRequirement;
+import com.gtnhkanban.network.message.C2SFetchActivity;
 import com.gtnhkanban.network.message.C2SFetchBoard;
 import com.gtnhkanban.network.message.C2SListPlayerNames;
 import com.gtnhkanban.network.message.C2SListProjects;
 import com.gtnhkanban.network.message.C2SMoveCard;
 import com.gtnhkanban.network.message.C2SRemoveMember;
+import com.gtnhkanban.network.message.C2SRestoreCard;
 import com.gtnhkanban.network.message.C2SSaveSettings;
 import com.gtnhkanban.network.message.C2SSetCardAssigned;
 import com.gtnhkanban.network.message.C2SSetCardLink;
@@ -43,6 +46,7 @@ import com.gtnhkanban.network.message.C2SUploadBreakdown;
 import com.gtnhkanban.network.message.KanbanRequest;
 import com.gtnhkanban.network.message.RecipeTreeCodec;
 import com.gtnhkanban.network.message.RequestType;
+import com.gtnhkanban.network.message.S2CActivity;
 import com.gtnhkanban.network.message.S2CBoardSnapshot;
 import com.gtnhkanban.network.message.S2COpenProjectList;
 import com.gtnhkanban.network.message.S2COperationResult;
@@ -82,6 +86,7 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new ClientBoardHandler(), S2CBoardSnapshot.class, 11, Side.CLIENT);
         CHANNEL.registerMessage(new ClientResultHandler(), S2COperationResult.class, 12, Side.CLIENT);
         CHANNEL.registerMessage(new ClientPlayerNamesHandler(), S2CPlayerNames.class, 29, Side.CLIENT);
+        CHANNEL.registerMessage(new ClientActivityHandler(), S2CActivity.class, 31, Side.CLIENT);
         CHANNEL.registerMessage(new ListProjectsHandler(), C2SListProjects.class, 0, Side.SERVER);
         CHANNEL.registerMessage(new CreateProjectHandler(), C2SCreateProject.class, 1, Side.SERVER);
         CHANNEL.registerMessage(new AddMemberHandler(), C2SAddMember.class, 2, Side.SERVER);
@@ -108,6 +113,8 @@ public final class KanbanNetwork {
         CHANNEL.registerMessage(new SaveSettingsHandler(), C2SSaveSettings.class, 27, Side.SERVER);
         CHANNEL.registerMessage(new ListPlayerNamesHandler(), C2SListPlayerNames.class, 28, Side.SERVER);
         CHANNEL.registerMessage(new SetCardLinkHandler(), C2SSetCardLink.class, 30, Side.SERVER);
+        CHANNEL.registerMessage(new FetchActivityHandler(), C2SFetchActivity.class, 32, Side.SERVER);
+        CHANNEL.registerMessage(new RestoreCardHandler(), C2SRestoreCard.class, 33, Side.SERVER);
     }
 
     /** Drops unfinished uploads from a stopped server. */
@@ -199,6 +206,27 @@ public final class KanbanNetwork {
                 return item.isFluid() ? FluidRegistry.getFluid(item.getRegistryName()) != null
                     : Item.itemRegistry.getObject(item.getRegistryName()) != null;
             }
+
+            @Override
+            public String displayName(ItemKey item) {
+                try {
+                    if (item.isFluid()) {
+                        net.minecraftforge.fluids.Fluid fluid = FluidRegistry.getFluid(item.getRegistryName());
+                        return fluid == null ? item.getRegistryName() : fluid.getLocalizedName();
+                    }
+                    Object registered = Item.itemRegistry.getObject(item.getRegistryName());
+                    if (!(registered instanceof Item)) return item.getRegistryName();
+                    net.minecraft.item.ItemStack stack = new net.minecraft.item.ItemStack(
+                        (Item) registered,
+                        1,
+                        item.getMetadata());
+                    if (!item.getNbt()
+                        .isEmpty()) stack.setTagCompound(MaterialNbt.decode(item.getNbt()));
+                    return stack.getDisplayName();
+                } catch (RuntimeException exception) {
+                    return item.getRegistryName();
+                }
+            }
         });
     }
 
@@ -231,6 +259,7 @@ public final class KanbanNetwork {
             UUID actorId = player.getUniqueID();
             if (request.getType() != RequestType.LIST_PROJECTS && request.getType() != RequestType.FETCH_BOARD
                 && request.getType() != RequestType.LIST_PLAYER_NAMES
+                && request.getType() != RequestType.FETCH_ACTIVITY
                 && !KanbanStorage.get()
                     .isWritable()) {
                 sendToClient(
@@ -250,6 +279,12 @@ public final class KanbanNetwork {
                     .createProject(actorId, bounded(request.getFirstText(), 64));
                 sendResult(player, result);
                 if (result.isSuccess()) requestProjectList(player, false);
+                return;
+            }
+            if (request.getType() == RequestType.FETCH_ACTIVITY) {
+                OperationResult<ActivityLog> activity = service.getActivity(actorId, request.getProjectId());
+                if (activity.isSuccess()) sendToClient(new S2CActivity(activity.getValue()), player);
+                else sendResult(player, activity);
                 return;
             }
             if (request.getType() == RequestType.LIST_PLAYER_NAMES) {
@@ -332,6 +367,9 @@ public final class KanbanNetwork {
                         request.getCardId(),
                         request.getEntryId(),
                         request.isComplete());
+                    break;
+                case RESTORE_CARD:
+                    result = service.restoreCard(actorId, projectId, request.getCardId());
                     break;
                 case SET_CARD_LINK:
                     result = service.setCardLink(
@@ -507,6 +545,21 @@ public final class KanbanNetwork {
     }
 
     private static final class SetCardLinkHandler extends ServerRequestHandler {
+    }
+
+    private static final class FetchActivityHandler extends ServerRequestHandler {
+    }
+
+    private static final class RestoreCardHandler extends ServerRequestHandler {
+    }
+
+    private static final class ClientActivityHandler implements IMessageHandler<S2CActivity, IMessage> {
+
+        @Override
+        public IMessage onMessage(S2CActivity message, MessageContext context) {
+            KanbanMod.proxy.receiveActivity(message.getLog());
+            return null;
+        }
     }
 
     private static final class SetCardAssignedHandler extends ServerRequestHandler {
